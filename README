@@ -1,0 +1,26 @@
+php-uniauth - v0.0.0
+--------------------------------------------------------------------------------
+This project provides a PHP extension for performing universal authentication on
+a single host. The extension contains functionality that allows a PHP-based Web
+platform the ability to universally track login sessions. This is useful for
+implementing single sign-on within the same physical host running multiple
+virtual hosts.
+
+The extension does not actually manipulate the PHP session. Instead it uses the
+session configuration (id and expiry) to track login requests and identity
+authentication.
+
+The core function is uniauth(), which checks to see if a user ID has been
+registered with the current session. If not, it redirects the user-agent to the
+specified authentication endpoint.
+
+In the authentication application, one of two things can happen. If the PHP
+session does not have a user id, then the application verifies user credentials
+and calls uniauth_register() to assign a user id to the uniauth session. Then
+uniauth_transfer() is used to transfer the id to the pending session (this will
+also automatically redirect the user back to the original application).
+
+Primary author:
+    Roger Gee <rpg11a@acu.edu>
+
+--------------------------------------------------------------------------------
