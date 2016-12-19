@@ -1,26 +1,67 @@
 php-uniauth - v0.0.0
 --------------------------------------------------------------------------------
-This project provides a PHP extension for performing universal authentication on
-a single host. The extension contains functionality that allows a PHP-based Web
-platform the ability to universally track login sessions. This is useful for
-implementing single sign-on within the same physical host running multiple
-virtual hosts.
-
-The extension does not actually manipulate the PHP session. Instead it uses the
-session configuration (id and expiry) to track login requests and identity
-authentication.
-
-The core function is uniauth(), which checks to see if a user ID has been
-registered with the current session. If not, it redirects the user-agent to the
-specified authentication endpoint.
-
-In the authentication application, one of two things can happen. If the PHP
-session does not have a user id, then the application verifies user credentials
-and calls uniauth_register() to assign a user id to the uniauth session. Then
-uniauth_transfer() is used to transfer the id to the pending session (this will
-also automatically redirect the user back to the original application).
+This project provides a PHP extension and Linux daemon for performing universal
+authentication among different sites running on the same host. The
+implementation consists of an extension that provides PHP userspace an interface
+for connecting with the uniauth daemon (also provided in this repository).
 
 Primary author:
     Roger Gee <rpg11a@acu.edu>
 
 --------------------------------------------------------------------------------
+The Uniauth Flow
+
+Uniauth is a redirect flow for implementing single sign-on on sites running on
+the same host. Unlike other single sign-on flows it does not transmit user
+information in the Web requests (e.g. a token or user credentials). Instead it
+transmits a cookie id to identify pending authentication requests. Login status
+information (i.e. a user ID and name) are transmitted locally on the server over
+a domain socket connection with the uniauth daemon.
+
+The daemon maintains a simple database of uniauth records. These records hold
+user, session and redirect information used in the flow. Records are keyed by a
+cookie ID. If the userspace script does not provide an id, the PHP session id
+will be used instead. This assume the session has been started. The extension
+does not actually manipulate the PHP session. Instead it just uses the session
+configuration (id and expiry) to track its own uniauth records. This frees PHP
+from having to track this information in its session. If a full-blown session is
+not required, then a cookie can be used instead. The cookie's expiry should be
+set to align with the session max lifetime.
+
+Their are two roles in the flow taken by applications:
+
+    1. registrar
+    2. applicant
+
+The registrar site provides a means to collect user credentials and authenticate
+users. It then registers the collected user ID and name (along with a display
+name) with its session (or cookie).
+
+The applicant site queries authentication status and, if none is found,
+redirects to the registrar to be authenticated. Upon the user successfully
+providing credentials, the registrar will transfer authentication information
+from its session into the applicant session. Thus the applicant has applied and
+been accepted. The registrar redirects the user-agent back to the applicant
+site, upon which event the applicant queries authentication status and finds
+that it is authenticated.
+
+--------------------------------------------------------------------------------
+PHP Userspace Functions Overview
+
+The core function is uniauth(), which checks to see if a user ID has been
+associated with the current session or provied cookie id. If not, it redirects
+the user-agent to the specified authentication endpoint.
+
+In the authentication application, one of two things can happen. If the session
+does not have a user id, then the application verifies user credentials and
+calls uniauth_register() to assign a user id and name to the uniauth record for
+the session. Then uniauth_transfer() is used to transfer the id to the pending
+session (this will also automatically redirect the user back to the original
+application).
+
+--------------------------------------------------------------------------------
+PHP Userspace Functions Detail
+
+    uniauth()
+    uniauth_register()
+    uniauth_transfer()
