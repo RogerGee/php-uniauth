@@ -27,3 +27,6 @@ modules
 *.lo
 .libs/
 *.la
+*.o
+uniauthd
+uniauthd-daemon

@@ -4,9 +4,13 @@
 
 #ifndef UNIAUTH_DEFS_H
 #define UNIAUTH_DEFS_H
+#include <stdint.h>
+#include <stdbool.h>
 #include <time.h>
 
-/* The auth record stored for each session */
+/* Represents the auth record stored for each session. All strings are
+ * null-terminated and have their lengths cached.
+ */
 
 struct uniauth_storage
 {
@@ -31,13 +35,22 @@ struct uniauth_storage
 
     /* Redirect URI as provided by applicant. */
 
-    char* redirect;    /* the URI string */
-    size_t redirectSz; /* cache length of URI string */
+    char* redirect;       /* the URI string */
+    size_t redirectSz;    /* cache length of URI string */
 };
 
 /* Protocol constants */
+
 #define UNIAUTH_PROTO_LOOKUP 0x00
 #define UNIAUTH_PROTO_COMMIT 0x01
 #define UNIAUTH_PROTO_CREATE 0x02
+
+#define UNIAUTH_PROTO_FIELD_KEY      0x00
+#define UNIAUTH_PROTO_FIELD_ID       0x01
+#define UNIAUTH_PROTO_FIELD_USER     0x02
+#define UNIAUTH_PROTO_FIELD_DISPLAY  0x03
+#define UNIAUTH_PROTO_FIELD_REDIRECT 0x04
+
+#define UNIAUTH_MAX_MESSAGE 4096
 
 #endif

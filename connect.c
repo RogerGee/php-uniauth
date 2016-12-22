@@ -7,7 +7,9 @@
 
 void uniauth_storage_delete(struct uniauth_storage* stor)
 {
-    /* Free the members. Some members may not be allocated. the structure is allocated on the stack. */
+    /* Free the members. Some members may not be allocated. The structure itself
+     * is not free'd here (since it may be allocated on the stack).
+     */
 
     if (stor->key != NULL) {
         efree(stor->key);
