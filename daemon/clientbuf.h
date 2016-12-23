@@ -10,6 +10,7 @@
 
 enum message_status
 {
+    notset,
     complete,
     incomplete,
     error
@@ -21,14 +22,19 @@ enum message_status
  */
 struct clientbuf
 {
-    int sock;
-    time_t conntm;
-    enum message_status status;
-    char incoming[UNIAUTH_MAX_MESSAGE];
-    struct uniauth_storage stor;
+    int sock;                        /* client socket file descriptor */
+    time_t conntm;                   /* connect time in UNIX time */
+
+    enum message_status status;      /* the status of the input/output message */
+    int opkind;                      /* the kind of message being read/written */
+    int mode;                        /* non-zero output mode, zero input mode */
+
+    char iobuf[UNIAUTH_MAX_MESSAGE]; /* store outcoming/incoming message */
+    struct uniauth_storage stor;     /* cache uniauth fields interpreted from iobuf */
 };
 
 void clientbuf_init(struct clientbuf* client,int sock,time_t atm);
 void clientbuf_delete(struct clientbuf* client);
+int clientbuf_operation(struct clientbuf* client);
 
 #endif
