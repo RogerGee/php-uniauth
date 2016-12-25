@@ -18,6 +18,7 @@ struct uniauth_storage
 
     char* key;            /* unique string key for uniauth record */
     size_t keySz;         /* cache length of key string */
+    int ref;              /* reference counter */
 
     /* User information: this is provided by the registrar and is opaque to the
      * uniauth server and PHP extension.
@@ -44,12 +45,19 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_LOOKUP 0x00
 #define UNIAUTH_PROTO_COMMIT 0x01
 #define UNIAUTH_PROTO_CREATE 0x02
+#define UNIAUTH_OP_TOP       0x03
+
+#define UNIAUTH_PROTO_RESPONSE_MESSAGE 0x00
+#define UNIAUTH_PROTO_RESPONSE_ERROR   0x01
+#define UNIAUTH_PROTO_RESPONSE_RECORD  0x02
 
 #define UNIAUTH_PROTO_FIELD_KEY      0x00
 #define UNIAUTH_PROTO_FIELD_ID       0x01
 #define UNIAUTH_PROTO_FIELD_USER     0x02
 #define UNIAUTH_PROTO_FIELD_DISPLAY  0x03
-#define UNIAUTH_PROTO_FIELD_REDIRECT 0x04
+#define UNIAUTH_PROTO_FIELD_EXPIRE   0x04
+#define UNIAUTH_PROTO_FIELD_REDIRECT 0x05
+#define UNIAUTH_PROTO_FIELD_END      0xff
 
 #define UNIAUTH_MAX_MESSAGE 4096
 

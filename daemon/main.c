@@ -9,6 +9,7 @@
 #include "clientbuf.h"
 #include <dstructs/treemap.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <errno.h>
@@ -22,10 +23,11 @@
 #include <getopt.h>
 #include <unistd.h>
 
-#define NAME    "uniauthd"
-#define VERSION "0.0.0"
-#define PATH    "@uniauth"
+#define NAME            "uniauthd"
+#define VERSION         "0.0.0"
+#define SOCKET_PATH     "@uniauth"
 #define REALTIME_SIGNAL SIGRTMIN
+
 static const char* const OPTSTRING = "n";
 static const struct option LONGOPTS[] = {
     { "help", no_argument, NULL, 0 },
@@ -86,7 +88,6 @@ int main(int argc,char* argv[])
     struct uniauth_daemon_globals globals;
 
     globals_init(&globals);
-    globals_delete(&globals);
     parse_options(&globals,argc,argv);
 
     /* Handle options that produce output on the terminal before becoming a
@@ -117,6 +118,7 @@ int main(int argc,char* argv[])
     create_server(&globals);
     run_server(&globals);
 
+    globals_delete(&globals);
     return EXIT_SUCCESS;
 }
 
@@ -190,6 +192,7 @@ void globals_delete(struct uniauth_daemon_globals* globals)
 {
     size_t i;
 
+    close(globals->serverSocket);
     treemap_delete(&globals->sessions);
 
     for (i = 0;i < globals->clientsSize;++i) {
@@ -205,11 +208,13 @@ int uniauth_storage_cmp(struct uniauth_storage* a,struct uniauth_storage* b)
 
 void uniauth_storage_free(struct uniauth_storage* a)
 {
-    free(a->key);
-    free(a->username);
-    free(a->displayName);
-    free(a->redirect);
-    free(a);
+    if (--a->ref <= 0) {
+        free(a->key);
+        free(a->username);
+        free(a->displayName);
+        free(a->redirect);
+        free(a);
+    }
 }
 
 void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[])
@@ -251,6 +256,7 @@ static void setup_socket(int sock)
 void create_server(struct uniauth_daemon_globals* globals)
 {
     int sock;
+    socklen_t len;
     struct sockaddr_un addr;
 
     /* Create UNIX socket for accepting local stream connections. */
@@ -262,13 +268,17 @@ void create_server(struct uniauth_daemon_globals* globals)
 
     /* Set up address and perform bind and listen. */
     memset(&addr,0,sizeof(struct sockaddr_un));
-    strcpy(addr.sun_path,PATH);
+    strncpy(addr.sun_path,SOCKET_PATH,sizeof(SOCKET_PATH)-1);
     addr.sun_family = AF_UNIX;
     if (addr.sun_path[0] == '@') {
         /* Use abstract namespace. */
         addr.sun_path[0] = 0;
+        len = offsetof(struct sockaddr_un,sun_path) + sizeof(SOCKET_PATH) - 1;
     }
-    if (bind(sock,(const struct sockaddr*)&addr,sizeof(struct sockaddr_un)) == -1) {
+    else {
+        len = sizeof(struct sockaddr_un);
+    }
+    if (bind(sock,(const struct sockaddr*)&addr,len) == -1) {
         fatal_error("fail bind(): %s",strerror(errno));
     }
     if (listen(sock,SOMAXCONN) == -1) {
@@ -331,6 +341,46 @@ static void accept_client(struct uniauth_daemon_globals* globals)
     }
 }
 
+static void command_lookup(struct uniauth_daemon_globals* globals,
+    struct clientbuf* client)
+{
+    struct uniauth_storage* record;
+
+    record = treemap_lookup(&globals->sessions,&client->stor);
+    if (record == NULL) {
+        clientbuf_send_message(client,"no such record");
+        return;
+    }
+
+    clientbuf_send_record(client,record);
+}
+
+static void process_command(struct uniauth_daemon_globals* globals,
+    struct clientbuf* client)
+{
+    /* All of the commands deal with uniauth records, and for that we require at
+     * least a key.
+     */
+    if (client->stor.key == NULL) {
+        client->status = error;
+        clientbuf_send_error(client,"no key");
+        clientbuf_delete(client);
+        return;
+    }
+
+    switch (client->opkind) {
+    case UNIAUTH_PROTO_LOOKUP:
+        command_lookup(globals,client);
+        break;
+    case UNIAUTH_PROTO_COMMIT:
+
+        break;
+    case UNIAUTH_PROTO_CREATE:
+
+        break;
+    }
+}
+
 static void process_client(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
@@ -339,12 +389,38 @@ static void process_client(struct uniauth_daemon_globals* globals,
     /* Let the buffer handle input/output from/to the client. */
     result = clientbuf_operation(client);
     if (result) {
+        /* We are done communicating at this point. This is probably due to an
+         * error or the client shutdown the connection without sending any
+         * more bytes.
+         */
+        if (client->status == error) {
+            clientbuf_send_error(client,"error");
+        }
         clientbuf_delete(client);
         return;
     }
 
-    /* Check message status. */
+    /* Check message status. If completed then process the message command. */
+    if (client->iomode == 0) {
+        if (client->status == complete) {
+            process_command(globals,client);
+        }
+    }
 
+    /* Any completed message prompts a reset. This ensures we have finished
+     * flushing the output buffer before returning to input mode.
+     */
+    if (client->status == complete) {
+        clientbuf_input_mode(client);
+    }
+
+    /* The clientbuf_operation() function call may have returned zero on end of
+     * file if beforehand we read some bytes. In that case we need to check for
+     * eof since we won't be getting another notification about this socket.
+     */
+    if (client->eof) {
+        clientbuf_delete(client);
+    }
 }
 
 int run_server(struct uniauth_daemon_globals* globals)
@@ -355,7 +431,9 @@ int run_server(struct uniauth_daemon_globals* globals)
     pre_server(globals);
     set = &globals->sigset;
 
-    /* Accept and process clients while 'running' flag is set. A signal handler could change the flag*/
+    /* Accept and process clients while 'running' flag is set. A signal handler
+     * could change the flag at any moment.
+     */
     while (globals->running) {
         siginfo_t info;
 
