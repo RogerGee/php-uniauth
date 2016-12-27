@@ -34,6 +34,12 @@ struct clientbuf
     size_t bufsz;                    /* number of bytes used in buffer from buffer[0] */
     char buf[UNIAUTH_MAX_MESSAGE];   /* store outcoming/incoming message */
     struct uniauth_storage stor;     /* cache uniauth fields interpreted from iobuf */
+
+    /* Cache transfer fields interpreted from iobuf. */
+    struct {
+        char* src;
+        char* dst;
+    } trans;
 };
 
 void clientbuf_init(struct clientbuf* client,int sock,time_t atm);

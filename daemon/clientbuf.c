@@ -18,7 +18,6 @@ void clientbuf_init(struct clientbuf* client,int sock,time_t atm)
     memset(client,0,sizeof(struct clientbuf));
     client->sock = sock;
     client->conntm = atm;
-    client->status = notset;
 }
 
 void clientbuf_delete(struct clientbuf* client)
@@ -50,6 +49,42 @@ static size_t read_string(struct clientbuf* client,size_t iter,char** dst,size_t
     return 0;
 }
 
+static size_t read_integer(struct clientbuf* client,size_t iter,int32_t* dst)
+{
+    if (iter+UNIAUTH_INT_SZ <= client->bufsz) {
+        int i;
+        int32_t value = 0;
+
+        for (i = 0;i < UNIAUTH_INT_SZ;++i,++iter) {
+            value |= ((uint32_t)client->buf[iter] << (i*8));
+        }
+
+        *dst = value;
+        return UNIAUTH_INT_SZ;
+    }
+
+    /* The integer is incomplete. */
+    return 0;
+}
+
+static size_t read_time(struct clientbuf* client,size_t iter,int64_t* dst)
+{
+    if (iter+UNIAUTH_TIME_SZ <= client->bufsz) {
+        int i;
+        int64_t value = 0;
+
+        for (i = 0;i < UNIAUTH_TIME_SZ;++i,++iter) {
+            value |= ((uint64_t)client->buf[iter] << (i*8));
+        }
+
+        *dst = value;
+        return UNIAUTH_TIME_SZ;
+    }
+
+    /* The field is incomplete. */
+    return 0;
+}
+
 static int parse_buffer(struct clientbuf* client)
 {
     size_t iter = client->bufit;
@@ -59,7 +94,7 @@ static int parse_buffer(struct clientbuf* client)
     }
 
     /* Read opkind byte if we haven't already. */
-    if (client->status == notset || client->status == complete) {
+    if (client->status == notset) {
         client->opkind = client->buf[iter];
         if (client->opkind < 0 || client->opkind >= UNIAUTH_OP_TOP) {
             client->status = error;
@@ -76,6 +111,7 @@ static int parse_buffer(struct clientbuf* client)
      */
 
     while (iter < client->bufsz) {
+        size_t dummy;
         size_t nbytes;
         unsigned char field = client->buf[iter];
 
@@ -93,7 +129,7 @@ static int parse_buffer(struct clientbuf* client)
                 &client->stor.keySz);
             break;
         case UNIAUTH_PROTO_FIELD_ID:
-
+            nbytes = read_integer(client,iter+1,&client->stor.id);
             break;
         case UNIAUTH_PROTO_FIELD_USER:
             nbytes = read_string(client,iter+1,&client->stor.username,
@@ -104,11 +140,17 @@ static int parse_buffer(struct clientbuf* client)
                 &client->stor.displayNameSz);
             break;
         case UNIAUTH_PROTO_FIELD_EXPIRE:
-
+            nbytes = read_time(client,iter+1,&client->stor.expire);
             break;
         case UNIAUTH_PROTO_FIELD_REDIRECT:
             nbytes = read_string(client,iter+1,&client->stor.redirect,
                 &client->stor.redirectSz);
+            break;
+        case UNIAUTH_PROTO_FIELD_TRANSSRC:
+            nbytes = read_string(client,iter+1,&client->trans.src,&dummy);
+            break;
+        case UNIAUTH_PROTO_FIELD_TRANSDST:
+            nbytes = read_string(client,iter+1,&client->trans.dst,&dummy);
             break;
         default:
             client->status = error;
@@ -219,7 +261,7 @@ void clientbuf_input_mode(struct clientbuf* client)
     client->iomode = 0;
     client->bufsz = 0;
     client->bufit = 0;
-    client->status = incomplete;
+    client->status = notset;
 }
 
 void clientbuf_output_mode(struct clientbuf* client)
@@ -229,7 +271,7 @@ void clientbuf_output_mode(struct clientbuf* client)
     client->iomode = 1;
     client->bufsz = 0;
     client->bufit = 0;
-    client->status = incomplete;
+    client->status = notset;
 }
 
 static char* get_output_buffer(struct clientbuf* client,size_t* outremain)
@@ -268,11 +310,40 @@ static size_t transfer_string(char* buf,size_t remain,const char* src)
     return n;
 }
 
-static size_t transfer_integer(char* buf,size_t remain,int value)
+static size_t transfer_integer(char* buf,size_t remain,int32_t value)
 {
+    char bs[UNIAUTH_INT_SZ];
+    size_t n = UNIAUTH_INT_SZ;
 
+    /* Write value in little endian. */
+    for (int i = 0;i < UNIAUTH_INT_SZ;++i) {
+        bs[i] = (value >> (i*8)) & 0xff;
+    }
 
-    return 4;
+    if (remain < n) {
+        n = remain;
+    }
+
+    memcpy(buf,bs,n);
+    return n;
+}
+
+static size_t transfer_time(char* buf,size_t remain,int64_t value)
+{
+    char bs[UNIAUTH_TIME_SZ];
+    size_t n = UNIAUTH_TIME_SZ;
+
+    /* Write value in little endian. */
+    for (int i = 0;i < UNIAUTH_TIME_SZ;++i) {
+        bs[i] = (value >> (i*8)) & 0xff;
+    }
+
+    if (remain < n) {
+        n = remain;
+    }
+
+    memcpy(buf,bs,n);
+    return n;
 }
 
 int clientbuf_send_error(struct clientbuf* client,const char* text)
@@ -321,7 +392,9 @@ int clientbuf_send_record(struct clientbuf* client,struct uniauth_storage* stor)
     if ((buf = get_output_buffer(client,&remain)) != NULL) {
         size_t n = 1;
 
-        /* Write fields into the buffer. We expect there to be enough space. */
+        /* Write fields into the buffer. We expect there to be enough space to
+         * write all the fields in one go.
+         */
         buf[0] = UNIAUTH_PROTO_RESPONSE_RECORD;
         if (stor->key != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_KEY;
@@ -339,15 +412,19 @@ int clientbuf_send_record(struct clientbuf* client,struct uniauth_storage* stor)
             buf[n++] = UNIAUTH_PROTO_FIELD_DISPLAY;
             n += transfer_string(buf+n,remain-n,stor->displayName);
         }
-        if (remain-n > 0) {
+        if (stor->expire > 0 && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_EXPIRE;
-            n += transfer_integer(buf+n,remain-n,stor->expire);
+            n += transfer_time(buf+n,remain-n,stor->expire);
         }
         if (stor->redirect != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_REDIRECT;
             n += transfer_string(buf+n,remain-n,stor->redirect);
         }
+        if (remain - n > 0) {
+            buf[n++] = (char)UNIAUTH_PROTO_FIELD_END;
+        }
 
+        client->bufsz += n;
         flush_buffer(client);
         return 0;
     }

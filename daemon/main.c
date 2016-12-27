@@ -36,6 +36,12 @@ static const struct option LONGOPTS[] = {
     { NULL, 0, NULL, 0 }
 };
 
+/* Provides another level of indirection to storing uniauth records. */
+struct uniauth_storage_wrapper
+{
+    struct uniauth_storage* stor;
+};
+
 /* Represents the global set of information maintained by each instance of the
  * daemon.
  */
@@ -45,7 +51,7 @@ struct uniauth_daemon_globals
     sigset_t sigset;  /* the set of signals received upon I/O */
     bool running;     /* true if the server should still be running */
 
-    struct treemap sessions;
+    struct treemap sessions; /* of 'struct uniauth_storage_wrapper' */
 
     size_t clientsSize;
     size_t clientsAlloc;
@@ -63,8 +69,9 @@ struct uniauth_daemon_globals
 static void daemonize();
 static void globals_init(struct uniauth_daemon_globals* globals);
 static void globals_delete(struct uniauth_daemon_globals* globals);
-static int uniauth_storage_cmp(struct uniauth_storage*,struct uniauth_storage*);
-static void uniauth_storage_free(struct uniauth_storage*);
+static int uniauth_storage_wrapper_cmp(struct uniauth_storage_wrapper*,
+    struct uniauth_storage_wrapper*);
+static void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper*);
 static void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[]);
 static void create_server(struct uniauth_daemon_globals* globals);
 static int run_server(struct uniauth_daemon_globals* globals);
@@ -181,8 +188,8 @@ void globals_init(struct uniauth_daemon_globals* globals)
     memset(globals,0,sizeof(struct uniauth_daemon_globals));
     globals->serverSocket = -1;
     treemap_init(&globals->sessions,
-        (key_comparator)uniauth_storage_cmp,
-        (destructor)uniauth_storage_free);
+        (key_comparator)uniauth_storage_wrapper_cmp,
+        (destructor)uniauth_storage_wrapper_free);
     globals->clientsAlloc = 0;
     globals->clientsSize = 0;
     globals->clients = NULL;
@@ -201,20 +208,23 @@ void globals_delete(struct uniauth_daemon_globals* globals)
     free(globals->clients);
 }
 
-int uniauth_storage_cmp(struct uniauth_storage* a,struct uniauth_storage* b)
+int uniauth_storage_wrapper_cmp(struct uniauth_storage_wrapper* a,
+    struct uniauth_storage_wrapper* b)
 {
-    return strcmp(a->key,b->key);
+    return strcmp(a->stor->key,b->stor->key);
 }
 
-void uniauth_storage_free(struct uniauth_storage* a)
+void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper* a)
 {
-    if (--a->ref <= 0) {
-        free(a->key);
-        free(a->username);
-        free(a->displayName);
-        free(a->redirect);
-        free(a);
+    struct uniauth_storage* stor = a->stor;
+    if (--stor->ref <= 0) {
+        free(stor->key);
+        free(stor->username);
+        free(stor->displayName);
+        free(stor->redirect);
+        free(stor);
     }
+    free(a);
 }
 
 void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[])
@@ -344,39 +354,179 @@ static void accept_client(struct uniauth_daemon_globals* globals)
 static void command_lookup(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
-    struct uniauth_storage* record;
+    struct uniauth_storage_wrapper* wrapper;
+    struct uniauth_storage_wrapper lk;
 
-    record = treemap_lookup(&globals->sessions,&client->stor);
-    if (record == NULL) {
-        clientbuf_send_message(client,"no such record");
+    /* Do lookup. */
+    lk.stor = &client->stor;
+    wrapper = treemap_lookup(&globals->sessions,&lk);
+    if (wrapper == NULL) {
+        clientbuf_send_error(client,"no such record");
         return;
     }
 
-    clientbuf_send_record(client,record);
+    clientbuf_send_record(client,wrapper->stor);
+}
+
+static void copy_record_string(const char* s,size_t z,char** ps,size_t* pz)
+{
+    if (*ps != NULL && *pz >= z+1) {
+        goto a;
+    }
+    *ps = malloc(z+1);
+a:
+
+    strcpy(*ps,s);
+    *pz = z;
+}
+
+static void copy_record(const struct uniauth_storage* src,
+    struct uniauth_storage* dst)
+{
+    /* This function copies uniauth fields from one record to another but only
+     * if the field in question is set. The field 'key' is not considered.
+     */
+
+    if (src->id > 0) {
+        dst->id = src->id;
+    }
+    if (src->username != NULL) {
+        copy_record_string(src->username,src->usernameSz,
+            &dst->username,&dst->usernameSz);
+    }
+    if (src->displayName != NULL) {
+        copy_record_string(src->displayName,src->displayNameSz,
+            &dst->displayName,&dst->displayNameSz);
+    }
+    if (src->expire != 0) {
+        dst->expire = src->expire;
+    }
+    if (src->redirect != NULL) {
+        copy_record_string(src->redirect,src->redirectSz,
+            &dst->redirect,&dst->redirectSz);
+    }
+}
+
+static void command_commit(struct uniauth_daemon_globals* globals,
+    struct clientbuf* client)
+{
+    struct uniauth_storage_wrapper* wrapper;
+    struct uniauth_storage_wrapper lk;
+
+    /* Do lookup. */
+    lk.stor = &client->stor;
+    wrapper = treemap_lookup(&globals->sessions,&lk);
+    if (wrapper == NULL) {
+        clientbuf_send_error(client,"no such record");
+        return;
+    }
+
+    /* Apply fields that are set from the received structure to the stored
+     * structure. This will apply all fields except key.
+     */
+    copy_record(&client->stor,wrapper->stor);
+    clientbuf_send_message(client,"changes committed");
+}
+
+static void command_create(struct uniauth_daemon_globals* globals,
+    struct clientbuf* client)
+{
+    struct uniauth_storage* record;
+    struct uniauth_storage_wrapper* wrapper;
+
+    /* Dynamically allocate the new record. Copy the buffer record into the new
+     * structure.
+     */
+    record = malloc(sizeof(struct uniauth_storage));
+    wrapper = malloc(sizeof(struct uniauth_storage_wrapper));
+    memset(record,0,sizeof(struct uniauth_storage));
+    copy_record(&client->stor,record);
+    copy_record_string(client->stor.key,client->stor.keySz,
+        &record->key,&record->keySz);
+    record->ref = 1;
+    wrapper->stor = record;
+
+    /* Insert the new record into the treemap. */
+    if (treemap_insert(&globals->sessions,wrapper) != 0) {
+        clientbuf_send_error(client,"record already exists");
+        uniauth_storage_wrapper_free(wrapper);
+        return;
+    }
+
+    clientbuf_send_message(client,"record created");
+}
+
+static void command_transfer(struct uniauth_daemon_globals* globals,
+    struct clientbuf* client)
+{
+    struct uniauth_storage* stor;
+    struct uniauth_storage lkk[2];
+    struct uniauth_storage_wrapper lk[2];
+    struct uniauth_storage_wrapper* src, *dst;
+
+    lk[0].stor = lkk;
+    lk[1].stor = lkk+1;
+    lkk[0].key = client->trans.src;
+    lkk[1].key = client->trans.dst;
+
+    /* Look up both the source and destination records. */
+    src = treemap_lookup(&globals->sessions,lk);
+    if (src == NULL) {
+        clientbuf_send_error(client,"no such source record to transfer");
+        return;
+    }
+    dst = treemap_lookup(&globals->sessions,lk+1);
+    if (dst == NULL) {
+        clientbuf_send_error(client,"no such destination record for transfer");
+        return;
+    }
+
+    /* Delete the destination record and assign a reference to the source
+     * record. This will effectively point the destination record at the source
+     * record storage structure.
+     */
+    stor = dst->stor;
+    if (--stor->ref <= 0) {
+        free(stor->key);
+        free(stor->username);
+        free(stor->displayName);
+        free(stor->redirect);
+        free(stor);
+    }
+    dst->stor = src->stor;
+    dst->stor->ref += 1;
 }
 
 static void process_command(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
-    /* All of the commands deal with uniauth records, and for that we require at
-     * least a key.
-     */
-    if (client->stor.key == NULL) {
+    /* Verify that the client sent required fields. */
+    if (client->opkind == UNIAUTH_PROTO_TRANSF) {
+        if (client->trans.src == NULL || client->trans.dst == NULL) {
+            client->status = error;
+            clientbuf_send_error(client,"no key");
+            return;
+        }
+    }
+    else if (client->stor.key == NULL) {
         client->status = error;
         clientbuf_send_error(client,"no key");
-        clientbuf_delete(client);
         return;
     }
 
+    /* Delegate control to the appropriate command handler. */
     switch (client->opkind) {
     case UNIAUTH_PROTO_LOOKUP:
         command_lookup(globals,client);
         break;
     case UNIAUTH_PROTO_COMMIT:
-
+        command_commit(globals,client);
         break;
     case UNIAUTH_PROTO_CREATE:
-
+        command_create(globals,client);
+        break;
+    case UNIAUTH_PROTO_TRANSF:
+        command_transfer(globals,client);
         break;
     }
 }

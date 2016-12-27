@@ -197,31 +197,45 @@ PHP_FUNCTION(uniauth)
          */
         stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
 
-        /* Commit changes back to uniauth daemon and return id to userspace. */
+        /* ID must be set. */
+        if (stor->id >= 1) {
+            /* Commit changes back to uniauth daemon and return id to
+             * userspace. */
+            long id = stor->id;
+            uniauth_connect_commit(stor);
+            uniauth_storage_delete(stor);
+            RETURN_LONG(id);
+
+            /* Control no longer in function. */
+        }
+
+        /* If the ID was not set, then we update the redirect URI and continue
+         * to redirect the script.
+         */
+        if (!set_redirect_uri(stor)) {
+            return;
+        }
         uniauth_connect_commit(stor);
-        uniauth_storage_delete(stor);
-        RETURN_LONG(stor->id);
-
-        /* Control no longer in function. */
     }
+    else {
+        /* Create a new entry. We must set the expire time since the daemon does
+         * not do it. Plus we want to align the lifetime with the session
+         * lifetime as close as possible.
+         */
+        stor = &local;
+        memset(stor,0,sizeof(struct uniauth_storage));
+        stor->key = estrndup(sessid,sesslen);
+        stor->keySz = sesslen;
+        stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
 
-    /* Create a new entry. We must set the expire time since the daemon does
-     * not do it. Plus we want to align the lifetime with the session
-     * lifetime as close as possible.
-     */
-    stor = &local;
-    memset(stor,0,sizeof(struct uniauth_storage));
-    stor->key = estrndup(sessid,sesslen);
-    stor->keySz = sesslen;
-    stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
+        /* Fill out stor->redirect. */
+        if (!set_redirect_uri(stor)) {
+            return;
+        }
 
-    /* Fill out stor->redirect. */
-    if (!set_redirect_uri(stor)) {
-        return;
+        /* Send new record to the uniauth daemon. */
+        uniauth_connect_create(stor);
     }
-
-    /* Send new record to the uniauth daemon. */
-    uniauth_connect_create(stor);
 
     /* Add a redirect header. TODO: add query parameter for session id. */
     ctr.line = emalloc(urllen + sizeof(LOCATION_HEADER));
@@ -355,8 +369,7 @@ static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
    by $_GET['uniauth'] */
 PHP_FUNCTION(uniauth_transfer)
 {
-    struct uniauth_storage backing[2];
-    struct uniauth_storage* src;
+    struct uniauth_storage backing;
     struct uniauth_storage* dst;
     char* sessid = NULL;
     size_t sesslen = 0;
@@ -380,38 +393,29 @@ PHP_FUNCTION(uniauth_transfer)
         }
     }
 
-    /* Lookup the uniauth record for the session. It should already exist. */
-    src = uniauth_connect_lookup(sessid,backing);
-    if (src == NULL) {
-        zend_throw_exception(NULL,"no uniauth registration found",0 TSRMLS_CC);
-        return;
-    }
-
     /* Lookup the foreign session into which we are transfering the user ID. The
-     * foreign session id is sent in a GET query parameter.
+     * foreign session id is sent in a GET query parameter. We have to lookup
+     * the destination record so we can grab its redirect URI before it's
+     * overwritten.
      */
     foreignSession = GET_PARAM("GET","uniauth");
     if (foreignSession == NULL) {
         zend_throw_exception(NULL,"no 'uniauth' query parameter found",0 TSRMLS_CC);
         return;
     }
-    dst = uniauth_connect_lookup(foreignSession,backing+1);
-
-    /* Transfer the info from the source record to the destination record and
-     * commit the changes. We'll just make the src record key and expire match
-     * the dst record to avoid having to copy.
-     */
-    efree(src->key);
-    src->key = dst->key;
-    src->keySz = dst->keySz;
-    dst->key = NULL;
-    src->expire = dst->expire;
-    if (src->redirect != NULL) {
-        /* Just in case. We want to make sure we clear the redirect field. */
-        efree(src->redirect);
-        src->redirect = NULL;
+    dst = uniauth_connect_lookup(foreignSession,&backing);
+    if (dst == NULL) {
+        zend_throw_exception(NULL,"no destination registration found",0 TSRMLS_CC);
+        return;
     }
-    uniauth_connect_commit(src);
+
+    /* Transfer the info from the source record to the destination record. The
+     * uniauth daemon will do this for us.
+     */
+    if (!uniauth_connect_transfer(sessid,foreignSession)) {
+        zend_throw_exception(NULL,"transfer failed",0 TSRMLS_CC);
+        return;
+    }
 
     /* Add header to redirect back to pending page. */
     if (dst->redirect != NULL) {
@@ -423,7 +427,5 @@ PHP_FUNCTION(uniauth_transfer)
         efree(ctr.line);
     }
 
-    /* Free the uniauth record fields. */
-    uniauth_storage_delete(backing);
-    uniauth_storage_delete(backing+1);
+    uniauth_storage_free(&backing);
 }

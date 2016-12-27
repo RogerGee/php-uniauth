@@ -19,7 +19,8 @@ void uniauth_storage_delete(struct uniauth_storage* stor);
 /* Connect commands; these wrap a protocol operation */
 struct uniauth_storage* uniauth_connect_lookup(const char* key,
     struct uniauth_storage* backing);
-void uniauth_connect_commit(struct uniauth_storage* stor);
-void uniauth_connect_create(struct uniauth_storage* stor);
+int uniauth_connect_commit(struct uniauth_storage* stor);
+int uniauth_connect_create(struct uniauth_storage* stor);
+int uniauth_connect_transfer(const char* src,const char* dst);
 
 #endif

@@ -24,7 +24,7 @@ struct uniauth_storage
      * uniauth server and PHP extension.
      */
 
-    long id;              /* the user ID */
+    int32_t id;           /* the user ID */
     char* username;       /* the user name */
     size_t usernameSz;    /* cache length of user name string */
     char* displayName;    /* the user display name */
@@ -32,7 +32,7 @@ struct uniauth_storage
 
     /* UNIX time when this record should be forgotten. */
 
-    time_t expire;
+    int64_t expire;
 
     /* Redirect URI as provided by applicant. */
 
@@ -45,7 +45,8 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_LOOKUP 0x00
 #define UNIAUTH_PROTO_COMMIT 0x01
 #define UNIAUTH_PROTO_CREATE 0x02
-#define UNIAUTH_OP_TOP       0x03
+#define UNIAUTH_PROTO_TRANSF 0x03
+#define UNIAUTH_OP_TOP       0x04
 
 #define UNIAUTH_PROTO_RESPONSE_MESSAGE 0x00
 #define UNIAUTH_PROTO_RESPONSE_ERROR   0x01
@@ -57,7 +58,12 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_FIELD_DISPLAY  0x03
 #define UNIAUTH_PROTO_FIELD_EXPIRE   0x04
 #define UNIAUTH_PROTO_FIELD_REDIRECT 0x05
+#define UNIAUTH_PROTO_FIELD_TRANSSRC 0x06
+#define UNIAUTH_PROTO_FIELD_TRANSDST 0x07
 #define UNIAUTH_PROTO_FIELD_END      0xff
+
+#define UNIAUTH_INT_SZ  4
+#define UNIAUTH_TIME_SZ 8
 
 #define UNIAUTH_MAX_MESSAGE 4096
 
