@@ -149,6 +149,10 @@ static int parse_buffer(struct clientbuf* client)
             nbytes = read_string(client,iter+1,&client->stor.redirect,
                 &client->stor.redirectSz);
             break;
+        case UNIAUTH_PROTO_FIELD_TAG:
+            nbytes = read_string(client,iter+1,&client->stor.tag,
+                &client->stor.tagSz);
+            break;
         case UNIAUTH_PROTO_FIELD_TRANSSRC:
             nbytes = read_string(client,iter+1,&client->trans.src,&dummy);
             break;
@@ -428,6 +432,10 @@ int clientbuf_send_record(struct clientbuf* client,const char* key,size_t keySz,
         if (stor->redirect != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_REDIRECT;
             n += transfer_string(buf+n,remain-n,stor->redirect,stor->redirectSz);
+        }
+        if (stor->tag != NULL && remain-n > 0) {
+            buf[n++] = UNIAUTH_PROTO_FIELD_TAG;
+            n += transfer_string(buf+n,remain-n,stor->tag,stor->tagSz);
         }
         if (remain - n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_END;

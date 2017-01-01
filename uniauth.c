@@ -23,12 +23,14 @@ static PHP_FUNCTION(uniauth);
 static PHP_FUNCTION(uniauth_register);
 static PHP_FUNCTION(uniauth_transfer);
 static PHP_FUNCTION(uniauth_check);
+static PHP_FUNCTION(uniauth_apply);
 
 static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth,NULL)
     PHP_FE(uniauth_register,NULL)
     PHP_FE(uniauth_transfer,NULL)
     PHP_FE(uniauth_check,NULL)
+    PHP_FE(uniauth_apply,NULL)
 
     {NULL, NULL, NULL}
 };
@@ -79,14 +81,14 @@ static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
         }
         else {
             zend_throw_exception(NULL,"could not activate auto global",0 TSRMLS_CC);
-            return 0;
+            return NULL;
         }
     }
 
     /* Lookup element and return as string. */
-    if (zend_hahs_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
         zend_throw_exception(NULL,"no such superglobal",0 TSRMLS_CC);
-        return 0;
+        return NULL;
     }
     bucket = Z_ARRVAL_PP(arr);
     if (zend_hash_find(bucket,elem,elemlen,(void**)&val) != FAILURE) {
@@ -95,6 +97,7 @@ static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
         }
     }
 
+    zend_throw_exception(NULL,"no such global variable",0 TSRMLS_CC);
     return NULL;
 }
 
@@ -208,9 +211,9 @@ PHP_FUNCTION(uniauth)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    size_t sesslen = 0;
+    int sesslen = 0;
     char* url = NULL;
-    size_t urllen = 0;
+    int urllen = 0;
     sapi_header_line ctr = {0};
     char* escaped;
     size_t newlen = 0;
@@ -280,15 +283,14 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_commit(stor);
     }
     else {
-        /* Create a new entry. We must set the expire time since the daemon does
-         * not do it. Plus we want to align the lifetime with the session
-         * lifetime as close as possible.
+        /* Create a new entry. The expiration time will be 0. This means the
+         * session is marked as a temporary session until authentication has
+         * been performed.
          */
         stor = &local;
         memset(stor,0,sizeof(struct uniauth_storage));
         stor->key = estrndup(sessid,sesslen);
         stor->keySz = sesslen;
-        stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
 
         /* Fill out stor->redirect. */
         if (!set_redirect_uri(stor)) {
@@ -306,7 +308,7 @@ PHP_FUNCTION(uniauth)
     /* Allocate a buffer to hold the redirect header line. 'newlen' includes the
      * size needed for the trailing null character.
      */
-    newlen += urllen + sizeof(LOCATION_HEADER)-1 + sizeof(UNIAUTH_QSTRING);
+    newlen += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
     ctr.line = emalloc(newlen);
 
     /* Prepare the redirect header line. This will include a query parameter
@@ -326,18 +328,18 @@ PHP_FUNCTION(uniauth)
 }
 
 /* {{{ proto void uniauth_register(int id, string name, string displayName [, string key])
-   Registers a user-id with the current session */
+   Registers user information with the current session */
 PHP_FUNCTION(uniauth_register)
 {
     struct uniauth_storage backing;
     struct uniauth_storage* stor;
     long id;
     char* name;
-    size_t namelen;
+    int namelen;
     char* displayname;
-    size_t displaynamelen;
+    int displaynamelen;
     char* sessid = NULL;
-    size_t sesslen = 0;
+    int sesslen = 0;
 
     /* Grab id parameter from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"lss|s",&id,&name,&namelen,
@@ -361,7 +363,9 @@ PHP_FUNCTION(uniauth_register)
     }
 
     /* Lookup the uniauth_storage for the session. Create one if does not
-     * exist. Then assign the id to the structure.
+     * exist. Then assign the id to the structure. An expiration is created
+     * since we want this session to live (so we can keep registering new
+     * sessions with it).
      */
     stor = uniauth_connect_lookup(sessid,sesslen,&backing);
     if (stor != NULL) {
@@ -373,9 +377,9 @@ PHP_FUNCTION(uniauth_register)
         if (stor->displayName != NULL) {
             efree(stor->displayName);
         }
-        stor->username = estrndup(name,namelen);
+        stor->username = estrdup(name);
         stor->usernameSz = namelen;
-        stor->displayName = estrndup(displayname,displaynamelen);
+        stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
         stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
 
@@ -387,9 +391,9 @@ PHP_FUNCTION(uniauth_register)
         stor->key = estrndup(sessid,sesslen);
         stor->keySz = sesslen;
         stor->id = id;
-        stor->username = estrndup(name,namelen);
+        stor->username = estrdup(name);
         stor->usernameSz = namelen;
-        stor->displayName = estrndup(displayname,displaynamelen);
+        stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
         stor->expire = time(NULL) + PS(gc_maxlifetime);
 
@@ -401,21 +405,20 @@ PHP_FUNCTION(uniauth_register)
 }
 
 /* {{{ proto void uniauth_transfer([string key])
-   Transfers a user id from the current session to the session referred to
-   by $_GET['uniauth'] */
+   Completes the auth flow by transferring the current uniauth record into the
+   awaiting applicant record */
 PHP_FUNCTION(uniauth_transfer)
 {
-    struct uniauth_storage backing;
+    struct uniauth_storage backing[2];
+    struct uniauth_storage* src;
     struct uniauth_storage* dst;
     char* sessid = NULL;
-    size_t sesslen = 0;
+    int sesslen = 0;
     char* foreignSession;
     size_t foreignSessionlen;
     sapi_header_line ctr = {0};
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(),"s|s",foreignSession,&foreignSessionlen,
-            &sessid,&sesslen) == FAILURE)
-    {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
         return;
     }
 
@@ -432,12 +435,30 @@ PHP_FUNCTION(uniauth_transfer)
         }
     }
 
+    /* Lookup the source session so that we can grab the foreign session
+     * ID. This should have been recorded in the 'tag' field by a call to
+     * uniauth_begin().
+     */
+    src = uniauth_connect_lookup(sessid,sesslen,backing);
+    if (src == NULL) {
+        zend_throw_exception(NULL,"source registration does not exist",0 TSRMLS_CC);
+        return;
+    }
+    if (src->tag == NULL) {
+        zend_throw_exception(NULL,"source registration did not apply",0 TSRMLS_CC);
+        uniauth_storage_delete(backing);
+        return;
+    }
+    foreignSession = src->tag;
+    foreignSessionlen = src->tagSz;
+
     /* We have to lookup the destination record so we can grab its redirect URI
      * before it's overwritten.
      */
-    dst = uniauth_connect_lookup(foreignSession,foreignSessionlen,&backing);
+    dst = uniauth_connect_lookup(foreignSession,foreignSessionlen,backing+1);
     if (dst == NULL) {
-        zend_throw_exception(NULL,"no destination registration found",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"destination registration does not exist",0 TSRMLS_CC);
+        uniauth_storage_delete(backing);
         return;
     }
 
@@ -446,6 +467,8 @@ PHP_FUNCTION(uniauth_transfer)
      */
     if (uniauth_connect_transfer(sessid,foreignSession) == -1) {
         zend_throw_exception(NULL,"transfer failed",0 TSRMLS_CC);
+        uniauth_storage_delete(backing);
+        uniauth_storage_delete(backing+1);
         return;
     }
 
@@ -459,7 +482,8 @@ PHP_FUNCTION(uniauth_transfer)
         efree(ctr.line);
     }
 
-    uniauth_storage_delete(&backing);
+    uniauth_storage_delete(backing);
+    uniauth_storage_delete(backing+1);
 }
 
 /* {{{ proto bool uniauth_check([string key])
@@ -469,7 +493,7 @@ PHP_FUNCTION(uniauth_check)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    size_t sesslen = 0;
+    int sesslen = 0;
     int result = 0;
 
     /* Grab parameters from userspace. */
@@ -500,4 +524,74 @@ PHP_FUNCTION(uniauth_check)
         RETURN_TRUE;
     }
     RETURN_FALSE;
+}
+
+/* {{{ proto void uniauth_apply([string key])
+   Begins the application process by creating the registrar session and assigning
+   the session ID passed in $_GET['uniauth'] to it. */
+PHP_FUNCTION(uniauth_apply)
+{
+    struct uniauth_storage local;
+    struct uniauth_storage* stor;
+    char* sessid = NULL;
+    int sesslen = 0;
+    char* applicantID;
+    int create;
+
+    /* Grab parameters from userspace. */
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
+        return;
+    }
+
+    /* Lookup session id from module globals if no explicit key id was
+     * provided. This requires that the session module is enabled. This function
+     * throws if there is no session.
+     */
+    if (sessid == NULL) {
+        sessid = PS(id);
+        if (sessid == NULL) {
+            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
+            return;
+        }
+        sesslen = strlen(sessid);
+    }
+
+    /* Query the registrar session in case it already exists. We'll create it if
+     * it does not.
+     */
+    stor = uniauth_connect_lookup(sessid,sesslen,&local);
+    create = (stor == NULL);
+    if (create) {
+        stor = &local;
+        memset(stor,0,sizeof(struct uniauth_storage));
+        stor->key = estrndup(sessid,sesslen);
+        stor->keySz = sesslen;
+    }
+    else if (stor->tag != NULL) {
+        efree(stor->tag);
+        stor->tag = NULL;
+        stor->tagSz = 0;
+    }
+
+    /* Grab the applicant ID from the _GET superglobal array. Assign it to the
+     * 'tag' field. We save this so we can reference the applicant session later
+     * on in the flow.
+     */
+    applicantID = GET_PARAM("_GET","uniauth");
+    if (applicantID == NULL) {
+        if (!create) {
+            uniauth_storage_delete(stor);
+        }
+        return;
+    }
+    stor->tag = estrdup(applicantID);
+    stor->tagSz = strlen(applicantID);
+
+    /* Perform transaction. */
+    if (create) {
+        uniauth_connect_create(stor);
+    }
+    else {
+        uniauth_connect_commit(stor);
+    }    
 }

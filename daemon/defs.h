@@ -41,6 +41,11 @@ struct uniauth_storage
 
     char* redirect;       /* the URI string */
     size_t redirectSz;    /* cache length of URI string */
+
+    /* Tag for application defined data. */
+
+    char* tag;
+    size_t tagSz;
 };
 
 /* Connection constants */
@@ -67,6 +72,7 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_FIELD_REDIRECT 0x05
 #define UNIAUTH_PROTO_FIELD_TRANSSRC 0x06
 #define UNIAUTH_PROTO_FIELD_TRANSDST 0x07
+#define UNIAUTH_PROTO_FIELD_TAG      0x08
 #define UNIAUTH_PROTO_FIELD_END      (char)0xff
 
 #define UNIAUTH_INT_SZ  4

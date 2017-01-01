@@ -225,6 +225,7 @@ void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper* a)
         free(stor->username);
         free(stor->displayName);
         free(stor->redirect);
+        free(stor->tag);
         free(stor);
     }
     free(a->key);
@@ -394,6 +395,9 @@ static void copy_record(const struct uniauth_storage* src,
         copy_record_string(src->redirect,src->redirectSz,
             &dst->redirect,&dst->redirectSz);
     }
+    if (src->tag != NULL) {
+        copy_record_string(src->tag,src->tagSz,&dst->tag,&dst->tagSz);
+    }
 }
 
 static void command_commit(struct uniauth_daemon_globals* globals,
@@ -468,21 +472,25 @@ static void command_transfer(struct uniauth_daemon_globals* globals,
         return;
     }
 
-    /* Delete the destination record and assign a reference to the source
-     * record. This will effectively point the destination record at the source
-     * record storage structure. We still have two record entries, but they
-     * point to the same storage structure.
-     */
-    stor = dst->stor;
-    if (--stor->ref <= 0) {
-        free(stor->key);
-        free(stor->username);
-        free(stor->displayName);
-        free(stor->redirect);
-        free(stor);
+    /* Make sure source and destination records are distinct. */
+    if (src != dst) {
+        /* Delete the destination record and assign a reference to the source
+         * record. This will effectively point the destination record at the source
+         * record storage structure. We still have two record entries, but they
+         * point to the same storage structure.
+         */
+        stor = dst->stor;
+        if (--stor->ref <= 0) {
+            free(stor->key);
+            free(stor->username);
+            free(stor->displayName);
+            free(stor->redirect);
+            free(stor->tag);
+            free(stor);
+        }
+        dst->stor = src->stor;
+        dst->stor->ref += 1;
     }
-    dst->stor = src->stor;
-    dst->stor->ref += 1;
 
     clientbuf_send_message(client,"transfer completed");
 }
