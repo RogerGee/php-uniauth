@@ -48,9 +48,11 @@ that it is authenticated.
 --------------------------------------------------------------------------------
 PHP Userspace Functions Overview
 
-The core function is uniauth(), which checks to see if a user ID has been
+The core function is uniauth(), which checks to see if a user session has been
 associated with the current session or provied cookie id. If not, it redirects
-the user-agent to the specified authentication endpoint.
+the user-agent to the specified authentication endpoint. If an ID is associated,
+the function returns an associative array containing the 'id', 'user' and
+'display' records for the entry.
 
 In the authentication application, one of two things can happen. If the session
 does not have a user id, then the application verifies user credentials and
@@ -65,3 +67,4 @@ PHP Userspace Functions Detail
     uniauth()
     uniauth_register()
     uniauth_transfer()
+    uniauth_check()

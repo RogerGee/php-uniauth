@@ -14,7 +14,10 @@
 
 struct uniauth_storage
 {
-    /* Key: needs to be first element for casting */
+    /* Key: the uniauth daemon reference counts storage records (i.e. so
+     * multiple sessions can reference the same entry) and as such does not
+     * store keys here.
+     */
 
     char* key;            /* unique string key for uniauth record */
     size_t keySz;         /* cache length of key string */
@@ -40,6 +43,10 @@ struct uniauth_storage
     size_t redirectSz;    /* cache length of URI string */
 };
 
+/* Connection constants */
+
+#define SOCKET_PATH     "@uniauth"
+
 /* Protocol constants */
 
 #define UNIAUTH_PROTO_LOOKUP 0x00
@@ -60,7 +67,7 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_FIELD_REDIRECT 0x05
 #define UNIAUTH_PROTO_FIELD_TRANSSRC 0x06
 #define UNIAUTH_PROTO_FIELD_TRANSDST 0x07
-#define UNIAUTH_PROTO_FIELD_END      0xff
+#define UNIAUTH_PROTO_FIELD_END      (char)0xff
 
 #define UNIAUTH_INT_SZ  4
 #define UNIAUTH_TIME_SZ 8

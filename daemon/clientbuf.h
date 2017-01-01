@@ -49,6 +49,7 @@ void clientbuf_input_mode(struct clientbuf* client);
 void clientbuf_output_mode(struct clientbuf* client);
 int clientbuf_send_error(struct clientbuf* client,const char* text);
 int clientbuf_send_message(struct clientbuf* client,const char* text);
-int clientbuf_send_record(struct clientbuf* client,struct uniauth_storage* stor);
+int clientbuf_send_record(struct clientbuf* client,const char* key,size_t keySz,
+    struct uniauth_storage* stor);
 
 #endif

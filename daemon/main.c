@@ -25,7 +25,6 @@
 
 #define NAME            "uniauthd"
 #define VERSION         "0.0.0"
-#define SOCKET_PATH     "@uniauth"
 #define REALTIME_SIGNAL SIGRTMIN
 
 static const char* const OPTSTRING = "n";
@@ -36,9 +35,13 @@ static const struct option LONGOPTS[] = {
     { NULL, 0, NULL, 0 }
 };
 
-/* Provides another level of indirection to storing uniauth records. */
 struct uniauth_storage_wrapper
 {
+    /* Store unique key per entry. */
+    char* key;
+    size_t keySz;
+
+    /* Reference to storage record may be shared by other entries. */
     struct uniauth_storage* stor;
 };
 
@@ -211,19 +214,20 @@ void globals_delete(struct uniauth_daemon_globals* globals)
 int uniauth_storage_wrapper_cmp(struct uniauth_storage_wrapper* a,
     struct uniauth_storage_wrapper* b)
 {
-    return strcmp(a->stor->key,b->stor->key);
+    return strcmp(a->key,b->key);
 }
 
 void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper* a)
 {
     struct uniauth_storage* stor = a->stor;
     if (--stor->ref <= 0) {
-        free(stor->key);
+        free(stor->key); /* shouldn't be allocated */
         free(stor->username);
         free(stor->displayName);
         free(stor->redirect);
         free(stor);
     }
+    free(a->key);
     free(a);
 }
 
@@ -254,7 +258,7 @@ void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[])
 
 static void setup_socket(int sock)
 {
-    /* Modify socket to perform signal-drive, async I/O. */
+    /* Modify socket to perform signal-driven, async I/O. */
     if (fcntl(sock,F_SETSIG,REALTIME_SIGNAL) == -1
         || fcntl(sock,F_SETOWN,getpid()) == -1
         || fcntl(sock,F_SETFL,fcntl(sock,F_GETFL) | O_ASYNC) == -1)
@@ -337,20 +341,6 @@ static void pre_server(struct uniauth_daemon_globals* globals)
     }
 }
 
-static void accept_client(struct uniauth_daemon_globals* globals)
-{
-    int fd;
-
-    fd = accept4(globals->serverSocket,NULL,NULL,SOCK_NONBLOCK);
-    if (fd != -1) {
-        struct clientbuf* cli = globals->clients + fd;
-
-        setup_socket(fd);
-        clientbuf_init(cli,fd,time(NULL));
-        globals->clientsSize += 1;
-    }
-}
-
 static void command_lookup(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
@@ -358,14 +348,14 @@ static void command_lookup(struct uniauth_daemon_globals* globals,
     struct uniauth_storage_wrapper lk;
 
     /* Do lookup. */
-    lk.stor = &client->stor;
+    lk.key = client->stor.key;
     wrapper = treemap_lookup(&globals->sessions,&lk);
     if (wrapper == NULL) {
         clientbuf_send_error(client,"no such record");
         return;
     }
 
-    clientbuf_send_record(client,wrapper->stor);
+    clientbuf_send_record(client,wrapper->key,wrapper->keySz,wrapper->stor);
 }
 
 static void copy_record_string(const char* s,size_t z,char** ps,size_t* pz)
@@ -379,7 +369,6 @@ a:
     strcpy(*ps,s);
     *pz = z;
 }
-
 static void copy_record(const struct uniauth_storage* src,
     struct uniauth_storage* dst)
 {
@@ -414,7 +403,7 @@ static void command_commit(struct uniauth_daemon_globals* globals,
     struct uniauth_storage_wrapper lk;
 
     /* Do lookup. */
-    lk.stor = &client->stor;
+    lk.key = client->stor.key;
     wrapper = treemap_lookup(&globals->sessions,&lk);
     if (wrapper == NULL) {
         clientbuf_send_error(client,"no such record");
@@ -440,9 +429,10 @@ static void command_create(struct uniauth_daemon_globals* globals,
     record = malloc(sizeof(struct uniauth_storage));
     wrapper = malloc(sizeof(struct uniauth_storage_wrapper));
     memset(record,0,sizeof(struct uniauth_storage));
+    memset(wrapper,0,sizeof(struct uniauth_storage_wrapper));
     copy_record(&client->stor,record);
     copy_record_string(client->stor.key,client->stor.keySz,
-        &record->key,&record->keySz);
+        &wrapper->key,&wrapper->keySz);
     record->ref = 1;
     wrapper->stor = record;
 
@@ -460,14 +450,11 @@ static void command_transfer(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
     struct uniauth_storage* stor;
-    struct uniauth_storage lkk[2];
     struct uniauth_storage_wrapper lk[2];
     struct uniauth_storage_wrapper* src, *dst;
 
-    lk[0].stor = lkk;
-    lk[1].stor = lkk+1;
-    lkk[0].key = client->trans.src;
-    lkk[1].key = client->trans.dst;
+    lk[0].key = client->trans.src;
+    lk[1].key = client->trans.dst;
 
     /* Look up both the source and destination records. */
     src = treemap_lookup(&globals->sessions,lk);
@@ -483,7 +470,8 @@ static void command_transfer(struct uniauth_daemon_globals* globals,
 
     /* Delete the destination record and assign a reference to the source
      * record. This will effectively point the destination record at the source
-     * record storage structure.
+     * record storage structure. We still have two record entries, but they
+     * point to the same storage structure.
      */
     stor = dst->stor;
     if (--stor->ref <= 0) {
@@ -495,6 +483,8 @@ static void command_transfer(struct uniauth_daemon_globals* globals,
     }
     dst->stor = src->stor;
     dst->stor->ref += 1;
+
+    clientbuf_send_message(client,"transfer completed");
 }
 
 static void process_command(struct uniauth_daemon_globals* globals,
@@ -570,6 +560,26 @@ static void process_client(struct uniauth_daemon_globals* globals,
      */
     if (client->eof) {
         clientbuf_delete(client);
+    }
+}
+
+static void accept_client(struct uniauth_daemon_globals* globals)
+{
+    int fd;
+
+    fd = accept4(globals->serverSocket,NULL,NULL,SOCK_NONBLOCK);
+    if (fd != -1) {
+        struct clientbuf* cli = globals->clients + fd;
+
+        setup_socket(fd);
+        clientbuf_init(cli,fd,time(NULL));
+        globals->clientsSize += 1;
+
+        /* There may exist a race condition from when we accept the client
+         * socket until when we set it to receive edge-triggered I/O
+         * notifications.
+         */
+        process_client(globals,cli);
     }
 }
 

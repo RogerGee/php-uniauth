@@ -6,6 +6,7 @@
 
 #include "clientbuf.h"
 #include <stdlib.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -53,10 +54,11 @@ static size_t read_integer(struct clientbuf* client,size_t iter,int32_t* dst)
 {
     if (iter+UNIAUTH_INT_SZ <= client->bufsz) {
         int i;
-        int32_t value = 0;
+        uint32_t value = 0;
+        unsigned char* buf = (unsigned char*)client->buf + iter;
 
-        for (i = 0;i < UNIAUTH_INT_SZ;++i,++iter) {
-            value |= ((uint32_t)client->buf[iter] << (i*8));
+        for (i = 0;i < UNIAUTH_INT_SZ;++i) {
+            value |= ((uint32_t)buf[i] << (i*8));
         }
 
         *dst = value;
@@ -71,10 +73,11 @@ static size_t read_time(struct clientbuf* client,size_t iter,int64_t* dst)
 {
     if (iter+UNIAUTH_TIME_SZ <= client->bufsz) {
         int i;
-        int64_t value = 0;
+        uint64_t value = 0;
+        unsigned char* buf = (unsigned char*)client->buf + iter;
 
-        for (i = 0;i < UNIAUTH_TIME_SZ;++i,++iter) {
-            value |= ((uint64_t)client->buf[iter] << (i*8));
+        for (i = 0;i < UNIAUTH_TIME_SZ;++i) {
+            value |= ((uint64_t)buf[i] << (i*8));
         }
 
         *dst = value;
@@ -113,7 +116,7 @@ static int parse_buffer(struct clientbuf* client)
     while (iter < client->bufsz) {
         size_t dummy;
         size_t nbytes;
-        unsigned char field = client->buf[iter];
+        int field = client->buf[iter];
 
         /* If we read end-of-field then the message is complete. */
         if (field == UNIAUTH_PROTO_FIELD_END) {
@@ -262,6 +265,7 @@ void clientbuf_input_mode(struct clientbuf* client)
     client->bufsz = 0;
     client->bufit = 0;
     client->status = notset;
+    memset(&client->stor,0,sizeof(struct uniauth_storage));
 }
 
 void clientbuf_output_mode(struct clientbuf* client)
@@ -298,9 +302,9 @@ static char* get_output_buffer(struct clientbuf* client,size_t* outremain)
     return NULL;
 }
 
-static size_t transfer_string(char* buf,size_t remain,const char* src)
+static size_t transfer_string(char* buf,size_t remain,const char* src,size_t sz)
 {
-    size_t n = strlen(src) + 1;
+    size_t n = sz + 1;
 
     if (remain < n) {
         n = remain;
@@ -355,7 +359,7 @@ int clientbuf_send_error(struct clientbuf* client,const char* text)
         size_t n = 1;
 
         buf[0] = UNIAUTH_PROTO_RESPONSE_ERROR;
-        n += transfer_string(buf+n,remain-n,text);
+        n += transfer_string(buf+n,remain-n,text,strlen(text));
         client->bufsz += n;
 
         flush_buffer(client);
@@ -374,7 +378,7 @@ int clientbuf_send_message(struct clientbuf* client,const char* text)
         size_t n = 1;
 
         buf[0] = UNIAUTH_PROTO_RESPONSE_MESSAGE;
-        n += transfer_string(buf+n,remain-n,text);
+        n += transfer_string(buf+n,remain-n,text,strlen(text));
         client->bufsz += n;
 
         flush_buffer(client);
@@ -384,7 +388,8 @@ int clientbuf_send_message(struct clientbuf* client,const char* text)
     return 1;
 }
 
-int clientbuf_send_record(struct clientbuf* client,struct uniauth_storage* stor)
+int clientbuf_send_record(struct clientbuf* client,const char* key,size_t keySz,
+    struct uniauth_storage* stor)
 {
     char* buf;
     size_t remain;
@@ -396,32 +401,36 @@ int clientbuf_send_record(struct clientbuf* client,struct uniauth_storage* stor)
          * write all the fields in one go.
          */
         buf[0] = UNIAUTH_PROTO_RESPONSE_RECORD;
-        if (stor->key != NULL && remain-n > 0) {
+        if (key != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_KEY;
-            n += transfer_string(buf+n,remain-n,stor->key);
+            n += transfer_string(buf+n,remain-n,key,keySz);
         }
         if (stor->id > 0 && remain-n > 0) {
+            /* ID field is valid if positive. */
+
             buf[n++] = UNIAUTH_PROTO_FIELD_ID;
             n += transfer_integer(buf+n,remain-n,stor->id);
         }
         if (stor->username != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_USER;
-            n += transfer_string(buf+n,remain-n,stor->username);
+            n += transfer_string(buf+n,remain-n,stor->username,stor->usernameSz);
         }
         if (stor->displayName != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_DISPLAY;
-            n += transfer_string(buf+n,remain-n,stor->displayName);
+            n += transfer_string(buf+n,remain-n,stor->displayName,stor->displayNameSz);
         }
-        if (stor->expire > 0 && remain-n > 0) {
+        if (stor->expire >= 0 && remain-n > 0) {
+            /* Expire field is valid if non-negative. */
+
             buf[n++] = UNIAUTH_PROTO_FIELD_EXPIRE;
             n += transfer_time(buf+n,remain-n,stor->expire);
         }
         if (stor->redirect != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_REDIRECT;
-            n += transfer_string(buf+n,remain-n,stor->redirect);
+            n += transfer_string(buf+n,remain-n,stor->redirect,stor->redirectSz);
         }
         if (remain - n > 0) {
-            buf[n++] = (char)UNIAUTH_PROTO_FIELD_END;
+            buf[n++] = UNIAUTH_PROTO_FIELD_END;
         }
 
         client->bufsz += n;
