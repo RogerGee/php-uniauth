@@ -68,6 +68,8 @@ struct uniauth_daemon_globals
     } options;
 };
 
+static bool* g_SignalToggle = NULL;
+
 /* Function declarations */
 static void daemonize();
 static void globals_init(struct uniauth_daemon_globals* globals);
@@ -78,6 +80,7 @@ static void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper*);
 static void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[]);
 static void create_server(struct uniauth_daemon_globals* globals);
 static int run_server(struct uniauth_daemon_globals* globals);
+static void term_signal(int signo);
 
 static void fatal_error(const char* format, ...)
 {
@@ -95,10 +98,20 @@ static void fatal_error(const char* format, ...)
 /* Entry point */
 int main(int argc,char* argv[])
 {
+    struct sigaction action;
     struct uniauth_daemon_globals globals;
+
+    /* Create a signal handler for terminating the daemon. */
+    memset(&action,0,sizeof(struct sigaction));
+    action.sa_handler = term_signal;
+    sigaction(SIGINT,&action,NULL);
+    sigaction(SIGTERM,&action,NULL);
+    sigaction(SIGQUIT,&action,NULL);
 
     globals_init(&globals);
     parse_options(&globals,argc,argv);
+
+    g_SignalToggle = &globals.running;
 
     /* Handle options that produce output on the terminal before becoming a
      * daemon.
@@ -115,6 +128,7 @@ int main(int argc,char* argv[])
             "options:\n"
             "  --help            Show this help text\n"
             "  --version         Print version info\n",
+            "  --no-daemon       Do not detach from controlling terminal\n"
             NAME,VERSION,NAME);
         exit(EXIT_SUCCESS);
     }
@@ -361,8 +375,13 @@ static void command_lookup(struct uniauth_daemon_globals* globals,
 
 static void copy_record_string(const char* s,size_t z,char** ps,size_t* pz)
 {
-    if (*ps != NULL && *pz >= z+1) {
-        goto a;
+    char* curbuf = *ps;
+    if (curbuf != NULL) {
+        /* NOTE: sizes of allocated buffers are *pz+1 and z+1 respectively. */
+        if (*pz >= z) {
+            goto a;
+        }
+        free(curbuf);
     }
     *ps = malloc(z+1);
 a:
@@ -635,4 +654,14 @@ int run_server(struct uniauth_daemon_globals* globals)
     }
 
     return 0;
+}
+
+void term_signal(int signo)
+{
+    if (g_SignalToggle == NULL) {
+        _exit(0);
+    }
+
+    /* Toggle the run state for the current process. */
+    *g_SignalToggle = false;
 }
