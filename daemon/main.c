@@ -58,7 +58,7 @@ struct uniauth_daemon_globals
 
     size_t clientsSize;
     size_t clientsAlloc;
-    struct clientbuf* clients;
+    struct clientbuf** clients;
 
     struct uniauth_options
     {
@@ -179,7 +179,9 @@ void daemonize()
     }
 
     umask(0);
-    chdir("/");
+    if (chdir("/") == -1) {
+        fatal_error("fail chdir(): %s",strerror(errno));
+    }
 
     /* Close any file descriptors. */
     maxfd = sysconf(_SC_OPEN_MAX);
@@ -207,8 +209,8 @@ void globals_init(struct uniauth_daemon_globals* globals)
     treemap_init(&globals->sessions,
         (key_comparator)uniauth_storage_wrapper_cmp,
         (destructor)uniauth_storage_wrapper_free);
-    globals->clientsAlloc = 0;
     globals->clientsSize = 0;
+    globals->clientsAlloc = 0;
     globals->clients = NULL;
 }
 
@@ -219,8 +221,11 @@ void globals_delete(struct uniauth_daemon_globals* globals)
     close(globals->serverSocket);
     treemap_delete(&globals->sessions);
 
-    for (i = 0;i < globals->clientsSize;++i) {
-        clientbuf_delete(globals->clients + i);
+    for (i = 0;i < globals->clientsAlloc;++i) {
+        if (globals->clients[i] != NULL) {
+            clientbuf_delete(globals->clients[i]);
+            free(globals->clients[i]);
+        }
     }
     free(globals->clients);
 }
@@ -325,26 +330,22 @@ static void pre_server(struct uniauth_daemon_globals* globals)
 
     globals->running = true;
 
-    /* Allocate as many client structures as we can have file descriptors. This
-     * allows us to create a mapping from file descriptor to client structure.
+    /* Allocate as many client structure pointers as we can have file
+     * descriptors. This allows us to create a mapping from file descriptor to
+     * client structure.
      */
     if (getrlimit(RLIMIT_NOFILE,&maxfd) == -1) {
         fatal_error("fail getrlimit(): %s\n",strerror(errno));
     }
     globals->clientsAlloc = maxfd.rlim_cur;
-    tot = sizeof(struct clientbuf) * globals->clientsAlloc;
+    tot = sizeof(struct clientbuf*) * globals->clientsAlloc;
     globals->clients = malloc(tot);
     if (globals->clients == NULL) {
         fatal_error("fail malloc(): %s",strerror(errno));
     }
 
-    /* Initialize client structures to default. Zero gets pretty much everything
-     * except the file descriptor.
-     */
+    /* Initialize client structure pointers to NULL. */
     memset(globals->clients,0,tot);
-    for (i = 0;i < globals->clientsAlloc;++i) {
-        globals->clients[i].sock = -1;
-    }
 
     /* Setup a realtime signal to synchronously wait for queued I/O
      * notifications.
@@ -563,7 +564,10 @@ static void process_client(struct uniauth_daemon_globals* globals,
         if (client->status == error) {
             clientbuf_send_error(client,"error");
         }
+        globals->clientsSize -= 1;
+        globals->clients[client->sock] = NULL;
         clientbuf_delete(client);
+        free(client);
         return;
     }
 
@@ -586,7 +590,10 @@ static void process_client(struct uniauth_daemon_globals* globals,
      * eof since we won't be getting another notification about this socket.
      */
     if (client->eof) {
+        globals->clientsSize -= 1;
+        globals->clients[client->sock] = NULL;
         clientbuf_delete(client);
+        free(client);
     }
 }
 
@@ -596,7 +603,8 @@ static void accept_client(struct uniauth_daemon_globals* globals)
 
     fd = accept4(globals->serverSocket,NULL,NULL,SOCK_NONBLOCK);
     if (fd != -1) {
-        struct clientbuf* cli = globals->clients + fd;
+        struct clientbuf* cli = malloc(sizeof(struct clientbuf));
+        globals->clients[fd] = cli;
 
         setup_socket(fd);
         clientbuf_init(cli,fd,time(NULL));
@@ -641,8 +649,10 @@ int run_server(struct uniauth_daemon_globals* globals)
         }
 
         /* Otherwise it should be for an existing client. */
-        else if ((size_t)info.si_fd < globals->clientsAlloc) {
-            process_client(globals,globals->clients + info.si_fd);
+        else if ((size_t)info.si_fd < globals->clientsAlloc
+            && globals->clients[info.si_fd] != NULL)
+        {
+            process_client(globals,globals->clients[info.si_fd]);
         }
 
         /* We should never get here but for completion we close the

@@ -5,7 +5,7 @@ ifeq ($(MAKECMDGOALS),debug)
 MAKE_DEBUG = yes
 endif
 
-OPTIONS = -O3 -std=gnu99
+OPTIONS = -O3 -std=gnu99 -Wno-unused-result
 DEBUG_OPTIONS = -g -Wall -pedantic-errors -Werror -Wextra -Wshadow -Wfatal-errors \
 	-Wno-unused-function -Wno-unused-parameter -Wno-unused-variable $(INCLUDE) \
 	-std=gnu99
