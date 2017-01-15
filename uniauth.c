@@ -182,9 +182,13 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     }
 
     /* Lookup request URI. This actually can be found in the sapi globals. */
-    uri = SG(request_info.request_uri);
-    if (uri == NULL) {
-        zend_throw_exception(NULL,"no request-uri available",0 TSRMLS_CC);
+    if (zend_hash_find(server,"REQUEST_URI",12,(void**)&val) != FAILURE
+        && Z_TYPE_PP(val) == IS_STRING)
+    {
+        uri = Z_STRVAL_PP(val);
+    }
+    else {
+        zend_throw_exception(NULL,"no REQUEST_URI within _SERVER found",0 TSRMLS_CC);
         return 0;
     }
 
