@@ -485,9 +485,18 @@ PHP_FUNCTION(uniauth_transfer)
         sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
         efree(ctr.line);
     }
+    else {
+        zend_throw_exception(NULL,"no redirect URI exists for the destination registration",0 TSRMLS_CC);
+        uniauth_storage_delete(backing);
+        uniauth_storage_delete(backing+1);
+        return;
+    }
 
     uniauth_storage_delete(backing);
     uniauth_storage_delete(backing+1);
+
+    /* Terminate user script to perform redirect. */
+    zend_bailout();
 }
 
 /* {{{ proto bool uniauth_check([string key])
