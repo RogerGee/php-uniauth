@@ -7,7 +7,9 @@
 #endif
 #include <php.h>
 #include <ext/standard/html.h>
+#include <ext/standard/url.h>
 #include <ext/session/php_session.h>
+#include <Zend/zend_exceptions.h>
 #include <SAPI.h>
 #ifdef ZTS
 #include <TSRM.h>
@@ -59,11 +61,15 @@ ZEND_GET_MODULE(uniauth)
 PHP_MINIT_FUNCTION(uniauth)
 {
     uniauth_connect_globals_init();
+
+    return SUCCESS;
 }
 
 PHP_MSHUTDOWN_FUNCTION(uniauth)
 {
     uniauth_connect_globals_shutdown();
+
+    return SUCCESS;
 }
 
 static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
@@ -219,8 +225,8 @@ PHP_FUNCTION(uniauth)
     char* url = NULL;
     int urllen = 0;
     sapi_header_line ctr = {0};
-    char* escaped;
-    size_t newlen = 0;
+    char* encoded;
+    int newlen = 0;
 
     /* Grab URL from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"s|s",&url,&urllen,
@@ -306,8 +312,8 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_create(stor);
     }
 
-    /* Escape the key so we can safely pass it in a query string. */
-    escaped = php_escape_html_entities(stor->key,stor->keySz,&newlen,1,ENT_COMPAT,NULL);
+    /* URL-encode the key so we can safely pass it in a query string. */
+    encoded = php_url_encode(stor->key,stor->keySz,&newlen);
 
     /* Allocate a buffer to hold the redirect header line. 'newlen' includes the
      * size needed for the trailing null character.
@@ -318,11 +324,11 @@ PHP_FUNCTION(uniauth)
     /* Prepare the redirect header line. This will include a query parameter
      * that contains the uniauth session key.
      */
-    snprintf(ctr.line,newlen,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,escaped);
+    snprintf(ctr.line,newlen,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded);
     ctr.line_len = newlen - 1;
     sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
     efree(ctr.line);
-    efree(escaped);
+    efree(encoded);
 
     /* Free memory allocated for uniauth record. */
     uniauth_storage_delete(stor);
