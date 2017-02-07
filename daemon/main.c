@@ -8,6 +8,7 @@
 #include "defs.h"
 #include "clientbuf.h"
 #include <dstructs/treemap.h>
+#include <dstructs/dynarray.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -18,14 +19,16 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <getopt.h>
 #include <unistd.h>
 
 #define NAME            "uniauthd"
-#define VERSION         "0.0.0"
+#define VERSION         "0.1.0"
 #define REALTIME_SIGNAL SIGRTMIN
+#define TIMER_INTERVAL  1800
 
 static const char* const OPTSTRING = "n";
 static const struct option LONGOPTS[] = {
@@ -48,8 +51,10 @@ struct uniauth_storage_wrapper
 /* Represents the global set of information maintained by each instance of the
  * daemon.
  */
-struct uniauth_daemon_globals
+static struct uniauth_daemon_globals
 {
+    bool checkGarbage; /* non-zero if garbage check is to be performed */
+
     int serverSocket; /* the server socket handle */
     sigset_t sigset;  /* the set of signals received upon I/O */
     bool running;     /* true if the server should still be running */
@@ -66,9 +71,13 @@ struct uniauth_daemon_globals
         bool doVersion;
         bool nodaemon;
     } options;
-};
+} *g_Globals;
 
-static bool* g_SignalToggle = NULL;
+struct cleanup_info
+{
+    int64_t now;
+    struct dynamic_array todo;
+};
 
 /* Function declarations */
 static void daemonize();
@@ -80,7 +89,9 @@ static void uniauth_storage_wrapper_free(struct uniauth_storage_wrapper*);
 static void parse_options(struct uniauth_daemon_globals* globals,int argc,char* argv[]);
 static void create_server(struct uniauth_daemon_globals* globals);
 static int run_server(struct uniauth_daemon_globals* globals);
+static void check_garbage(struct uniauth_daemon_globals* globals);
 static void term_signal(int signo);
+static void timer(int signo);
 
 static void fatal_error(const char* format, ...)
 {
@@ -99,19 +110,39 @@ static void fatal_error(const char* format, ...)
 int main(int argc,char* argv[])
 {
     struct sigaction action;
+    struct itimerval timerval;
     struct uniauth_daemon_globals globals;
 
     /* Create a signal handler for terminating the daemon. */
     memset(&action,0,sizeof(struct sigaction));
     action.sa_handler = term_signal;
-    sigaction(SIGINT,&action,NULL);
-    sigaction(SIGTERM,&action,NULL);
-    sigaction(SIGQUIT,&action,NULL);
+    if (sigaction(SIGINT,&action,NULL) == -1) {
+        fatal_error("fail sigaction(): %s",strerror(errno));
+    }
+    if (sigaction(SIGTERM,&action,NULL) == -1) {
+        fatal_error("fail sigaction(): %s",strerror(errno));
+    }
+    if (sigaction(SIGQUIT,&action,NULL) == -1) {
+        fatal_error("fail sigaction(): %s",strerror(errno));
+    }
 
+    /* Create a timer handler for toggling check state, allowing the daemon to
+     * periodically cleanup old sessions.
+     */
+    action.sa_handler = timer;
+    sigaction(SIGALRM,&action,NULL);
+    memset(&timerval,0,sizeof(struct itimerval));
+    timerval.it_interval.tv_sec = TIMER_INTERVAL;
+    timerval.it_value.tv_sec = TIMER_INTERVAL;
+    if (setitimer(ITIMER_REAL,&timerval,NULL) == -1) {
+        fatal_error("fail setitimer(): %s",strerror(errno));
+    }
+
+    /* Initialize and parse global options from command-line. */
     globals_init(&globals);
     parse_options(&globals,argc,argv);
 
-    g_SignalToggle = &globals.running;
+    g_Globals = &globals;
 
     /* Handle options that produce output on the terminal before becoming a
      * daemon.
@@ -495,9 +526,9 @@ static void command_transfer(struct uniauth_daemon_globals* globals,
     /* Make sure source and destination records are distinct. */
     if (src != dst) {
         /* Delete the destination record and assign a reference to the source
-         * record. This will effectively point the destination record at the source
-         * record storage structure. We still have two record entries, but they
-         * point to the same storage structure.
+         * record. This will effectively point the destination record at the
+         * source record storage structure. We still have two record entries,
+         * but they point to the same storage structure.
          */
         stor = dst->stor;
         if (--stor->ref <= 0) {
@@ -632,6 +663,14 @@ int run_server(struct uniauth_daemon_globals* globals)
     while (globals->running) {
         siginfo_t info;
 
+        /* Handle notifications to check for stale sessions and perform garbage
+         * cleanup.
+         */
+        if (globals->checkGarbage) {
+            check_garbage(globals);
+            globals->checkGarbage = false;
+        }
+
         /* Wait for I/O notification on any stream socket. */
         if (sigwaitinfo(set,&info) == -1) {
             if (errno == EINTR) {
@@ -666,12 +705,65 @@ int run_server(struct uniauth_daemon_globals* globals)
     return 0;
 }
 
+static void check_garbage_callback(struct uniauth_storage_wrapper* element,
+    struct cleanup_info* info)
+{
+    struct uniauth_storage* stor = element->stor;
+
+    /* If the session expire was marked zero, then we allow it to live for at
+     * most two timer cycles (or at least 1 timer cycle) before cleaning it
+     * up. This prevents any conditions where the session is cleaned up before a
+     * user has a chance to register.
+     */
+    if (stor->expire == 0) {
+        stor->expire = 1;
+    }
+
+    /* Otherwise if the session expired, then mark the structure globally for
+     * deletion.
+     */
+    else if (stor->expire < info->now) {
+        dynamic_array_pushback(&info->todo,element);
+    }
+}
+
+void check_garbage(struct uniauth_daemon_globals* globals)
+{
+    size_t iter;
+    struct cleanup_info info;
+
+    /* Go through all sessions and perform garbage check operation. */
+    info.now = time(NULL);
+    dynamic_array_init(&info.todo);
+    treemap_traversal_inorder_ex(
+        &globals->sessions,
+        (key_callback_ex)check_garbage_callback,
+        &info);
+
+    /* Cleanup garbage that was marked for deletion. */
+    for (iter = 0;iter < info.todo.da_top;++iter) {
+        struct uniauth_storage_wrapper* wrapper = info.todo.da_data[iter];
+        treemap_remove(&globals->sessions,wrapper);
+    }
+
+    dynamic_array_delete(&info.todo);
+}
+
 void term_signal(int signo)
 {
-    if (g_SignalToggle == NULL) {
+    if (g_Globals == NULL) {
         _exit(0);
     }
 
     /* Toggle the run state for the current process. */
-    *g_SignalToggle = false;
+    g_Globals->running = false;
+}
+
+void timer(int signo)
+{
+    if (g_Globals == NULL) {
+        return;
+    }
+
+    g_Globals->checkGarbage = true;
 }
