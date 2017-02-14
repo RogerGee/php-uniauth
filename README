@@ -86,6 +86,15 @@ can check if a valid session exists. This should be done before calling
 uniauth_apply(). If 'true' is returned, then the registrar can skip to calling
 uniauth_transfer().
 
+Logging Out:
+
+To explictly invalidate a uniauth session, the uniauth_purge() API is
+employed. This simply invalidates the session ID so the user login status is
+void. Note that this will log out all services (i.e. vhosts) that are using the
+session. The session record is not technically freed until it expires
+naturally. This means the same uniauth IDs can be used again in future
+registration attempts.
+
 --------------------------------------------------------------------------------
 PHP Userspace Functions Detail
 
@@ -94,3 +103,13 @@ PHP Userspace Functions Detail
     uniauth_apply()
     uniauth_register()
     uniauth_transfer()
+    uniauth_purge()
+
+--------------------------------------------------------------------------------
+Limitations
+
+Since the registration session points to the same record as any other session,
+only one service can be registered at a time. If a race condition were to happen
+where two clients go for the registrar endpoint at the same time, then only one
+could actually complete. Thankfully this isn't really an issue since a typical
+user signs in to different services separately.

@@ -26,6 +26,7 @@ static PHP_FUNCTION(uniauth_register);
 static PHP_FUNCTION(uniauth_transfer);
 static PHP_FUNCTION(uniauth_check);
 static PHP_FUNCTION(uniauth_apply);
+static PHP_FUNCTION(uniauth_purge);
 
 static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth,NULL)
@@ -33,6 +34,7 @@ static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth_transfer,NULL)
     PHP_FE(uniauth_check,NULL)
     PHP_FE(uniauth_apply,NULL)
+    PHP_FE(uniauth_purge,NULL)
 
     {NULL, NULL, NULL}
 };
@@ -228,7 +230,9 @@ PHP_FUNCTION(uniauth)
     char* encoded;
     int newlen = 0;
 
-    /* Grab URL from userspace. */
+    /* Grab URL from userspace along with the session id if the user chooses to
+     * specify it.
+     */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"s|s",&url,&urllen,
             &sessid,&sesslen) == FAILURE)
     {
@@ -536,7 +540,7 @@ PHP_FUNCTION(uniauth_check)
     /* Check to see if we have a user ID for the session. If so, return true. */
     stor = uniauth_connect_lookup(sessid,sesslen,&local);
     if (stor != NULL) {
-        result = (stor->id > 0);
+        result = IS_VALID_USER_ID(stor->id);
         uniauth_storage_delete(stor);
     }
     if (result) {
@@ -613,4 +617,47 @@ PHP_FUNCTION(uniauth_apply)
     else {
         uniauth_connect_commit(stor);
     }
+}
+
+PHP_FUNCTION(uniauth_purge)
+{
+    struct uniauth_storage local;
+    struct uniauth_storage* stor;
+    char* sessid = NULL;
+    int sesslen = 0;
+    int result = 0;
+
+    /* Grab session id from user space. */
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
+        return;
+    }
+
+    /* Lookup session id from module globals if no explicit session id was
+     * provided. This requires that the session module is enabled. This function
+     * throws if there is no session.
+     */
+    if (sessid == NULL) {
+        sessid = PS(id);
+        if (sessid == NULL) {
+            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
+            return;
+        }
+        sesslen = strlen(sessid);
+    }
+
+    /* If the session is valid, invalidate it. */
+    stor = uniauth_connect_lookup(sessid,sesslen,&local);
+    if (stor != NULL) {
+        if (IS_VALID_USER_ID(stor->id)) {
+            stor->id = -1;
+            uniauth_connect_commit(stor);
+            result = 1;
+        }
+        uniauth_storage_delete(stor);
+    }
+
+    if (result) {
+        RETURN_TRUE;
+    }
+    RETURN_FALSE;
 }

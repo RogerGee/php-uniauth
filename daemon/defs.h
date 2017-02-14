@@ -80,4 +80,9 @@ struct uniauth_storage
 
 #define UNIAUTH_MAX_MESSAGE 4096
 
+/* Other macros */
+
+/* In uniauth, an id is valid if it is a positive integer. */
+#define IS_VALID_USER_ID(id) (id > 0)
+
 #endif
