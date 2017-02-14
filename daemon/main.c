@@ -391,6 +391,7 @@ static void pre_server(struct uniauth_daemon_globals* globals)
 static void command_lookup(struct uniauth_daemon_globals* globals,
     struct clientbuf* client)
 {
+    struct uniauth_storage* stor;
     struct uniauth_storage_wrapper* wrapper;
     struct uniauth_storage_wrapper lk;
 
@@ -402,7 +403,17 @@ static void command_lookup(struct uniauth_daemon_globals* globals,
         return;
     }
 
-    clientbuf_send_record(client,wrapper->key,wrapper->keySz,wrapper->stor);
+    /* Do a quick check on the record to make sure it hasn't expired. If it has,
+     * then we simply invalidate the ID before we send the record to the
+     * client. This is preferable to deleting the record since assumably the
+     * client is going to just create a new one anyway.
+     */
+    stor = wrapper->stor;
+    if (stor->expire > 0 && stor->expire < time(NULL)) {
+        stor->id = -1;
+    }
+
+    clientbuf_send_record(client,wrapper->key,wrapper->keySz,stor);
 }
 
 static void copy_record_string(const char* s,size_t z,char** ps,size_t* pz)

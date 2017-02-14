@@ -254,7 +254,7 @@ PHP_FUNCTION(uniauth)
         /* Touch the expire time so we keep the session alive. The daemon does
          * not set expire times.
          */
-        stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
+        stor->expire = time(NULL) + PS(gc_maxlifetime);
 
         /* ID must be set. */
         if (stor->id >= 1) {
@@ -276,7 +276,7 @@ PHP_FUNCTION(uniauth)
             else {
                 add_assoc_null(return_value,"display");
             }
-            add_assoc_long(return_value,"expire",stor->expire);
+            add_assoc_long(return_value,"expire",stor->expire + 10);
             uniauth_storage_delete(stor);
             return;
 
@@ -375,7 +375,7 @@ PHP_FUNCTION(uniauth_register)
     /* Lookup the uniauth_storage for the session. Create one if does not
      * exist. Then assign the id to the structure. An expiration is created
      * since we want this session to live (so we can keep registering new
-     * sessions with it).
+     * sessions with it). If the expiration exists we touch it so it updates.
      */
     stor = uniauth_connect_lookup(sessid,sesslen,&backing);
     if (stor != NULL) {
@@ -391,7 +391,7 @@ PHP_FUNCTION(uniauth_register)
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
-        stor->expire = time(NULL) + PS(gc_maxlifetime) + 10;
+        stor->expire = time(NULL) + PS(gc_maxlifetime);
 
         uniauth_connect_commit(stor);
     }
@@ -612,5 +612,5 @@ PHP_FUNCTION(uniauth_apply)
     }
     else {
         uniauth_connect_commit(stor);
-    }    
+    }
 }
