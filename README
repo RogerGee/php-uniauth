@@ -1,4 +1,4 @@
-php-uniauth - v0.0.0
+php-uniauth - v1.0.0
 --------------------------------------------------------------------------------
 This project provides a PHP extension and Linux daemon for performing universal
 authentication among different sites running on the same host (i.e. different

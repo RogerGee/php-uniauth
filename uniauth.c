@@ -16,10 +16,14 @@
 #endif
 #include "connect.h"
 
+#define PHP_UNIAUTH_EXTNAME "uniauth"
+#define PHP_UNIAUTH_EXTVER  "1.0.0"
+
 #define LOCATION_HEADER "Location: "
 #define UNIAUTH_QSTRING "?uniauth="
 
 static PHP_MINIT_FUNCTION(uniauth);
+static PHP_MINFO_FUNCTION(uniauth);
 static PHP_MSHUTDOWN_FUNCTION(uniauth);
 static PHP_FUNCTION(uniauth);
 static PHP_FUNCTION(uniauth_register);
@@ -49,9 +53,9 @@ zend_module_entry uniauth_module_entry = {
     PHP_MSHUTDOWN(uniauth),
     NULL, /* RINIT */
     NULL, /* RSHUTDOWN */
-    NULL, /* MINFO */
+    PHP_MINFO(uniauth),
 #if ZEND_MODULE_API_NO >= 20010901
-    "0.0.0",
+    PHP_UNIAUTH_EXTVER,
 #endif
     STANDARD_MODULE_PROPERTIES
 };
@@ -65,6 +69,16 @@ PHP_MINIT_FUNCTION(uniauth)
     uniauth_connect_globals_init();
 
     return SUCCESS;
+}
+
+PHP_MINFO_FUNCTION(uniauth)
+{
+    php_info_print_table_start();
+    php_info_print_table_row(2,PHP_UNIAUTH_EXTNAME,"enabled");
+    php_info_print_table_row(2,"extension version",PHP_UNIAUTH_EXTVER);
+    php_info_print_table_end();
+
+    DISPLAY_INI_ENTRIES();
 }
 
 PHP_MSHUTDOWN_FUNCTION(uniauth)
