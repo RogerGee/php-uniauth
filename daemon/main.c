@@ -439,7 +439,7 @@ static void copy_record(const struct uniauth_storage* src,
      * if the field in question is set. The field 'key' is not considered.
      */
 
-    if (src->id > 0) {
+    if (src->id != 0) {
         dst->id = src->id;
     }
     if (src->username != NULL) {

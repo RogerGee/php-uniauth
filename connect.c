@@ -279,13 +279,13 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
     return ! ((stor->key != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_KEY,stor->key,stor->keySz))
-        || (stor->id > 0 && !buffer_field_integer(buffer,maxsz,iter,
+        || (stor->id != 0 && !buffer_field_integer(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_ID,stor->id))
         || (stor->username != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_USER,stor->username,stor->usernameSz))
         || (stor->displayName != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_DISPLAY,stor->displayName,stor->displayNameSz))
-        || (stor->expire >= 0 && !buffer_field_time(buffer,maxsz,iter,
+        || (stor->expire != 0 && !buffer_field_time(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_EXPIRE,stor->expire))
         || (stor->redirect != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_REDIRECT,stor->redirect,stor->redirectSz))
