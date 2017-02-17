@@ -741,7 +741,9 @@ static void check_garbage_callback(struct uniauth_storage_wrapper* element,
 void check_garbage(struct uniauth_daemon_globals* globals)
 {
     size_t iter;
+    char buf[UNIAUTH_MAX_MESSAGE];
     struct cleanup_info info;
+    struct uniauth_storage_wrapper dummy = { buf, 0, NULL };
 
     /* Go through all sessions and perform garbage check operation. */
     info.now = time(NULL);
@@ -754,7 +756,8 @@ void check_garbage(struct uniauth_daemon_globals* globals)
     /* Cleanup garbage that was marked for deletion. */
     for (iter = 0;iter < info.todo.da_top;++iter) {
         struct uniauth_storage_wrapper* wrapper = info.todo.da_data[iter];
-        treemap_remove(&globals->sessions,wrapper);
+        strcpy(buf,wrapper->key);
+        treemap_remove(&globals->sessions,&dummy);
     }
 
     dynamic_array_delete(&info.todo);
