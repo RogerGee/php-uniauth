@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <poll.h>
 #include <unistd.h>
 
 /* Uniauth connect module globals */
@@ -86,11 +87,25 @@ static int uniauth_connect()
     struct sockaddr_un addr;
     socklen_t len;
     int* psock = &UNIAUTH_G(conn);
+    struct pollfd pollInfo;
 
     /* See if we already have a connection. */
     sock = *psock;
     if (sock != -1) {
-        return sock;
+        /* Make sure the socket is still alive. If an event happens on the
+         * socket then either the descriptor is invalid, an error occurred or a
+         * hang up occurred on the connection.
+         */
+        pollInfo.fd = sock;
+        pollInfo.events = 0;
+        pollInfo.revents = 0;
+        if (poll(&pollInfo,1,0) > 0) {
+            php_error(E_WARNING,"connection to uniauth daemon lost: attempting reconnect");
+            close(sock);
+        }
+        else {
+            return sock;
+        }
     }
 
     /* Since we do not have a connection, attempt a connect to the uniauth
@@ -115,6 +130,7 @@ static int uniauth_connect()
     }
     if (connect(sock,(struct sockaddr*)&addr,len) == -1) {
         php_error(E_ERROR,"could not connect to uniauth daemon: %s",strerror(errno));
+        return -1;
     }
 
     /* Assign socket to globals so we can look it back up later. */
