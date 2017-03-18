@@ -4,8 +4,7 @@
  * index.php - uniauth/test
  *
  * Run the PHP CLI SAPI in the test directory on localhost, port 8080. This
- * application will create two cookies, one for the index page and another for
- * the login page.
+ * application will use a 'uniauth' cookie to store the session id.
  */
 
 if (!function_exists('uniauth')) {
@@ -13,28 +12,18 @@ if (!function_exists('uniauth')) {
     exit(1);
 }
 
-if (!isset($_COOKIE['uniauth'])) {
-    $id = uniqid('uniauth');
-
-    /* We need to go ahead and set the cookie. This allows us to still use
-     * uniauth on the same host (if need would be).
-     */
-    setcookie('uniauth',$id,0);
-}
-else {
-    $id = $_COOKIE['uniauth'];
-}
-
-$info = uniauth("http://localhost:8080/login.php",$id);
-setcookie('uniauth',$id,$info['expire']);
+uniauth_cookie();
+$info = uniauth("http://localhost:8080/login.php");
 
 ?>
 <!doctype>
 <html>
   <head>
-    <title>Uniauth test</title>
+    <meta charset="utf-8">
+    <title>uniauth/test</title>
   </head>
   <body>
+    <h1>Congratulations - you passed and have a session!</h1>
     <h2>Uniauth session info</h2>
     <table>
       <tr><td>ID</td><td><?php print $info['id'];?></td></tr>

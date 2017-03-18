@@ -3,7 +3,7 @@
  */
 
 #include "connect.h"
-#include <php.h>
+#include "uniauth.h"
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
@@ -13,22 +13,6 @@
 #include <sys/un.h>
 #include <poll.h>
 #include <unistd.h>
-
-/* Uniauth connect module globals */
-
-ZEND_BEGIN_MODULE_GLOBALS(uniauth)
-  int conn;
-ZEND_END_MODULE_GLOBALS(uniauth)
-ZEND_DECLARE_MODULE_GLOBALS(uniauth);
-
-#ifdef ZTS
-#include "TSRM.h"
-#define UNIAUTH_G(v)                            \
-    TSRMG(uniauth_globals_id,zend_uniauth_globals*,v)
-#else
-#define UNIAUTH_G(v)                            \
-    (uniauth_globals.v)
-#endif
 
 void uniauth_storage_delete(struct uniauth_storage* stor)
 {
@@ -46,6 +30,7 @@ void uniauth_storage_delete(struct uniauth_storage* stor)
 static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls TSRMLS_DC)
 {
     gbls->conn = -1;
+    gbls->useCookie = 0;
 }
 
 static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls TSRMLS_DC)
@@ -55,7 +40,7 @@ static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls TSRMLS_DC)
     }
 }
 
-void uniauth_connect_globals_init()
+void uniauth_globals_init()
 {
 #ifdef ZTS
     ts_allocate_id(&uniauth_globals_id,
@@ -67,7 +52,7 @@ void uniauth_connect_globals_init()
 #endif
 }
 
-void uniauth_connect_globals_shutdown()
+void uniauth_globals_shutdown()
 {
 #ifndef ZTS
     php_uniauth_globals_dtor(&uniauth_globals TSRMLS_CC);

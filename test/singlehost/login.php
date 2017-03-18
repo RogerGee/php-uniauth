@@ -2,32 +2,39 @@
 
 function d() {
     global $blocked;
-    if (isset($blocked) && $blocked) {
+    if ($blocked) {
         print 'disabled';
     }
 }
 
+// We use uniauth cookies to track uniauth sessions. The cookie will be shared
+// between the applicant/registrar endpoints.
+uniauth_cookie();
+
+$blocked = false;
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $blocked = false;
-    if (!isset($_POST['user'],$_POST['pass'],$_COOKIE['uniauth'])) {
+    // Make sure the request was good.
+    if (!isset($_POST['user'],$_POST['pass'])) {
         http_response_code(403);
         $blocked = true;
         $fail = 'The session or request is invalid. Please begin the auth flow again.';
     }
     else {
-        list($user,$pass,$id) = array($_POST['user'],$_POST['pass'],$_COOKIE['uniauth']);
+        // Try to perform sign in.
+        list($user,$pass) = array($_POST['user'],$_POST['pass']);
         if ($user == "john" && $pass == "alphabet") {
             try {
                 error_log('register');
-                uniauth_register(1,'john','John Doe',$id);
+                uniauth_register(1,'john','John Doe');
                 error_log('transfer');
-                uniauth_transfer($id);
+                uniauth_transfer();
+
+                // Control no longer in this program.
                 exit;
             } catch (Exception $ex) {
                 http_response_code(403);
                 $blocked = true;
                 $fail = 'You session window expired. Please try again.';
-                setcookie('uniauth',false,1);
             }
         }
         else {
@@ -37,33 +44,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 }
-else if (isset($_GET['uniauth'])) {
+else {
     /* Do application step. */
 
-    if (isset($_COOKIE['uniauth'])) {
-        if (uniauth_check($_COOKIE['uniauth'])) {
-            error_log("transfer");
-            uniauth_transfer($_COOKIE['uniauth']);
-            exit;
-        }
+    // If we have a valid session, just transfer it immediately.
+    if (uniauth_check()) {
+        error_log("immediate transfer");
+        uniauth_transfer();
 
-        $id = $_COOKIE['uniauth'];
-        error_log("got cookie $id");
-    }
-    else {
-        error_log('setting registrar cookie');
-        $id = uniqid('uniauth');
-        setcookie('uniauth',$id,0);
+        // Control no longer in this program.
+        exit;
     }
 
-    error_log('apply');
-    uniauth_apply($id);
+    if (isset($_GET['uniauth'])) {
+        error_log('apply');
+        uniauth_apply();
 
-    // Force another redirect to hide query parameter.
-    $uri = explode('?',$_SERVER['REQUEST_URI'],2)[0];
-    error_log("redir to $uri");
-    header("Location: $uri");
-    exit;
+        // Force another redirect to hide query parameter.
+        $uri = explode('?',$_SERVER['REQUEST_URI'],2)[0];
+        error_log("redir to $uri");
+        header("Location: $uri");
+        exit;
+    }
 }
 ?>
 <!doctype>

@@ -2,33 +2,17 @@
  * uniauth.c
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-#include <php.h>
-#include <ext/standard/html.h>
-#include <ext/standard/url.h>
-#include <ext/standard/base64.h>
-#include <ext/standard/php_rand.h>
-#include <ext/session/php_session.h>
-#include <Zend/zend_exceptions.h>
-#include <SAPI.h>
-#ifdef ZTS
-#include <TSRM.h>
-#endif
+#include "uniauth.h"
 #include "connect.h"
 
-#define PHP_UNIAUTH_EXTNAME "uniauth"
-#define PHP_UNIAUTH_EXTVER  "1.0.0"
-
-#define LOCATION_HEADER "Location: "
-#define UNIAUTH_QSTRING "?uniauth="
-
-#define UNIAUTH_COOKIE_IDLEN 64
-
+/* Module/request functions */
 static PHP_MINIT_FUNCTION(uniauth);
 static PHP_MINFO_FUNCTION(uniauth);
 static PHP_MSHUTDOWN_FUNCTION(uniauth);
+static PHP_RINIT_FUNCTION(uniauth);
+static PHP_RSHUTDOWN_FUNCTION(uniauth);
+
+/* PHP userspace functions */
 static PHP_FUNCTION(uniauth);
 static PHP_FUNCTION(uniauth_register);
 static PHP_FUNCTION(uniauth_transfer);
@@ -37,6 +21,7 @@ static PHP_FUNCTION(uniauth_apply);
 static PHP_FUNCTION(uniauth_purge);
 static PHP_FUNCTION(uniauth_cookie);
 
+/* Function entries */
 static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth,NULL)
     PHP_FE(uniauth_register,NULL)
@@ -49,6 +34,7 @@ static zend_function_entry php_uniauth_functions[] = {
     {NULL, NULL, NULL}
 };
 
+/* Module entries */
 zend_module_entry uniauth_module_entry = {
 #if ZEND_MODULE_API_NO >= 20010901
     STANDARD_MODULE_HEADER,
@@ -57,8 +43,8 @@ zend_module_entry uniauth_module_entry = {
     php_uniauth_functions,
     PHP_MINIT(uniauth),
     PHP_MSHUTDOWN(uniauth),
-    NULL, /* RINIT */
-    NULL, /* RSHUTDOWN */
+    PHP_RINIT(uniauth),
+    PHP_RSHUTDOWN(uniauth),
     PHP_MINFO(uniauth),
 #if ZEND_MODULE_API_NO >= 20010901
     PHP_UNIAUTH_EXTVER,
@@ -70,9 +56,11 @@ zend_module_entry uniauth_module_entry = {
 ZEND_GET_MODULE(uniauth)
 #endif
 
+/* Implementation of module/request functions */
+
 PHP_MINIT_FUNCTION(uniauth)
 {
-    uniauth_connect_globals_init();
+    uniauth_globals_init();
 
     return SUCCESS;
 }
@@ -89,10 +77,26 @@ PHP_MINFO_FUNCTION(uniauth)
 
 PHP_MSHUTDOWN_FUNCTION(uniauth)
 {
-    uniauth_connect_globals_shutdown();
+    uniauth_globals_shutdown();
 
     return SUCCESS;
 }
+
+PHP_RINIT_FUNCTION(uniauth)
+{
+
+    return SUCCESS;
+}
+
+PHP_RSHUTDOWN_FUNCTION(uniauth)
+{
+
+    return SUCCESS;
+}
+
+/* Define some helper functions for accessing/modifying superglobal
+ * variables.
+ */
 
 static zval* get_global(const char* gbl,int gbllen,const char* key,int keylen)
 {
@@ -159,6 +163,10 @@ static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval
 
 #define SET_GLOBAL(g,k,v)                       \
     set_global(g,sizeof(g),k,sizeof(k),v)
+
+/* Define a helper function for compiling the redirect uri to the current
+ * request.
+ */
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
@@ -263,6 +271,8 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     return 1;
 }
 
+/* Implementation of PHP userspace functions */
+
 /* {{{ proto array uniauth(string url [, string key])
    Looks up authentication session information or begins the uniauth flow if none found */
 PHP_FUNCTION(uniauth)
@@ -276,6 +286,7 @@ PHP_FUNCTION(uniauth)
     sapi_header_line ctr = {0};
     char* encoded;
     int newlen = 0;
+    zval* zv;
 
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
@@ -286,17 +297,35 @@ PHP_FUNCTION(uniauth)
         return;
     }
 
-    /* Lookup session id from module globals if no explicit key id was
-     * provided. This requires that the session module is enabled. This function
-     * throws if there is no session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
         }
-        sesslen = strlen(sessid);
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
+        }
     }
 
     /* Check to see if we have a user ID for the session. */
@@ -401,6 +430,7 @@ PHP_FUNCTION(uniauth_register)
     int displaynamelen;
     char* sessid = NULL;
     int sesslen = 0;
+    zval* zv;
 
     /* Grab id parameter from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"lss|s",&id,&name,&namelen,
@@ -409,17 +439,34 @@ PHP_FUNCTION(uniauth_register)
         return;
     }
 
-    /* Lookup session id from module globals if no explicit key id was
-     * provided. This requires that the session module is enabled and
-     * session_start() has been called. This function throws if there is no
-     * session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        sesslen = strlen(sessid);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
+        }
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
         }
     }
 
@@ -478,21 +525,40 @@ PHP_FUNCTION(uniauth_transfer)
     char* foreignSession;
     size_t foreignSessionlen;
     sapi_header_line ctr = {0};
+    zval* zv;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
         return;
     }
 
-    /* Lookup session id from module globals if no explicit key id was
-     * provided. This requires that the session module is enabled and a session
-     * has been started. This function throws if there is no session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        sesslen = strlen(sessid);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
+        }
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
         }
     }
 
@@ -565,23 +631,42 @@ PHP_FUNCTION(uniauth_check)
     char* sessid = NULL;
     int sesslen = 0;
     int result = 0;
+    zval* zv;
 
     /* Grab parameters from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
         return;
     }
 
-    /* Lookup session id from module globals if no explicit key id was
-     * provided. This requires that the session module is enabled. This function
-     * throws if there is no session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
         }
-        sesslen = strlen(sessid);
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
+        }
     }
 
     /* Check to see if we have a user ID for the session. If so, return true. */
@@ -614,17 +699,35 @@ PHP_FUNCTION(uniauth_apply)
         return;
     }
 
-    /* Lookup session id from module globals if no explicit key id was
-     * provided. This requires that the session module is enabled. This function
-     * throws if there is no session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
         }
-        sesslen = strlen(sessid);
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
+        }
     }
 
     /* Query the registrar session in case it already exists. We'll create it if
@@ -678,23 +781,42 @@ PHP_FUNCTION(uniauth_purge)
     char* sessid = NULL;
     int sesslen = 0;
     int result = 0;
+    zval* zv;
 
     /* Grab session id from user space. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
         return;
     }
 
-    /* Lookup session id from module globals if no explicit session id was
-     * provided. This requires that the session module is enabled. This function
-     * throws if there is no session.
+    /* Lookup session id from module globals or uniauth cookie if no explicit
+     * key id was provided. This requires that the PHP session exist (via a call
+     * to session_start()) OR the uniauth cookie being set via a call to
+     * uniauth_cookie(). This function throws if no session was detected.
      */
     if (sessid == NULL) {
-        sessid = PS(id);
-        if (sessid == NULL) {
-            zend_throw_exception(NULL,"no session-id available: is the session loaded?",0 TSRMLS_CC);
-            return;
+        if (UNIAUTH_G(useCookie)) {
+            zv = GET_GLOBAL("_COOKIE","uniauth");
+            if (zv == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no uniauth cookie session available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sessid = Z_STRVAL_P(zv);
+            sesslen = Z_STRLEN_P(zv);
         }
-        sesslen = strlen(sessid);
+        else {
+            sessid = PS(id);
+            if (sessid == NULL) {
+                zend_throw_exception(
+                    NULL,
+                    "no PHP session is available",
+                    0 TSRMLS_CC);
+                return;
+            }
+            sesslen = strlen(sessid);
+        }
     }
 
     /* If the session is valid, invalidate it. */
@@ -721,8 +843,9 @@ PHP_FUNCTION(uniauth_cookie)
 {
     zval* sessid;
 
-    // Get the session id from the cookie. If none was found then generate a new
-    // session id.
+    /* Get the session id from the cookie. If none was found then generate a new
+     * session id.
+     */
     sessid = GET_GLOBAL("_COOKIE","uniauth");
     if (sessid == NULL) {
         int i, j;
@@ -750,12 +873,32 @@ PHP_FUNCTION(uniauth_cookie)
         efree(outbuf);
 
         output[UNIAUTH_COOKIE_IDLEN] = 0;
-        ALLOC_ZVAL(sessid);
+        ALLOC_INIT_ZVAL(sessid);
         ZVAL_STRING(sessid,output,1);
+
+        /* Go ahead and set the cookie in the superglobal so it is available for
+         * this script. Subsequent calls to the uniauth extension could require
+         * the global to be set.
+         */
+        SET_GLOBAL("_COOKIE","uniauth",sessid);
     }
 
-    /* Create or touch the cookie. Return the session ID. */
-    php_setcookie("uniauth",sizeof("uniauth")-1,Z_STRVAL_P(sessid),
-        Z_STRLEN_P(sessid),time(NULL) + PS(gc_maxlifetime),"/",1,NULL,0,0,1);
-    RETVAL_ZVAL(sessid,1,1);
+    /* Toggle global flag to indicate the extension should use the uniauth
+     * cookie instead of the PHP session.
+     */
+    UNIAUTH_G(useCookie) = 1;
+
+    /* Create/touch the cookie. */
+    php_setcookie(
+        "uniauth", sizeof("uniauth") - 1,
+        Z_STRVAL_P(sessid), Z_STRLEN_P(sessid),
+        time(NULL) + PS(gc_maxlifetime),
+        "/", sizeof("/") - 1,
+        NULL,0,
+        0,1,0 TSRMLS_CC);
+
+    /* Return a copy of the zval. We need to preserve the sessid zval since it
+     * lives in the _COOKIE hashtable.
+     */
+    RETVAL_ZVAL(sessid,1,0);
 }
