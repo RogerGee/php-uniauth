@@ -8,6 +8,8 @@
 #include <php.h>
 #include <ext/standard/html.h>
 #include <ext/standard/url.h>
+#include <ext/standard/base64.h>
+#include <ext/standard/php_rand.h>
 #include <ext/session/php_session.h>
 #include <Zend/zend_exceptions.h>
 #include <SAPI.h>
@@ -22,6 +24,8 @@
 #define LOCATION_HEADER "Location: "
 #define UNIAUTH_QSTRING "?uniauth="
 
+#define UNIAUTH_COOKIE_IDLEN 64
+
 static PHP_MINIT_FUNCTION(uniauth);
 static PHP_MINFO_FUNCTION(uniauth);
 static PHP_MSHUTDOWN_FUNCTION(uniauth);
@@ -31,6 +35,7 @@ static PHP_FUNCTION(uniauth_transfer);
 static PHP_FUNCTION(uniauth_check);
 static PHP_FUNCTION(uniauth_apply);
 static PHP_FUNCTION(uniauth_purge);
+static PHP_FUNCTION(uniauth_cookie);
 
 static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth,NULL)
@@ -39,6 +44,7 @@ static zend_function_entry php_uniauth_functions[] = {
     PHP_FE(uniauth_check,NULL)
     PHP_FE(uniauth_apply,NULL)
     PHP_FE(uniauth_purge,NULL)
+    PHP_FE(uniauth_cookie,NULL)
 
     {NULL, NULL, NULL}
 };
@@ -88,7 +94,7 @@ PHP_MSHUTDOWN_FUNCTION(uniauth)
     return SUCCESS;
 }
 
-static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
+static zval* get_global(const char* gbl,int gbllen,const char* key,int keylen)
 {
     zend_auto_global* auto_global;
     HashTable* bucket;
@@ -102,30 +108,57 @@ static char* get_param(const char* gbl,int gbllen,const char* elem,int elemlen)
                 auto_global->name_len TSRMLS_CC);
         }
         else {
-            zend_throw_exception(NULL,"could not activate auto global",0 TSRMLS_CC);
             return NULL;
         }
     }
 
     /* Lookup element and return as string. */
     if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
-        zend_throw_exception(NULL,"no such superglobal",0 TSRMLS_CC);
         return NULL;
     }
     bucket = Z_ARRVAL_PP(arr);
-    if (zend_hash_find(bucket,elem,elemlen,(void**)&val) != FAILURE) {
-        if (Z_TYPE_PP(val) == IS_STRING) {
-            return Z_STRVAL_PP(val);
-        }
+    if (zend_hash_find(bucket,key,keylen,(void**)&val) != FAILURE) {
+        return *val;
     }
 
-    zend_throw_exception(NULL,"no such global variable",0 TSRMLS_CC);
     return NULL;
 }
 
 /* Arguments to this macro should be string literals. */
-#define GET_PARAM(g,e)                          \
-    get_param(g,sizeof(g),e,sizeof(e))
+#define GET_GLOBAL(g,e)                         \
+    get_global(g,sizeof(g),e,sizeof(e))
+
+static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval* value)
+{
+    zend_auto_global* auto_global;
+    HashTable* bucket;
+    zval** arr;
+
+    /* Make sure superglobal is auto loaded already. */
+    if (!zend_hash_exists(&EG(symbol_table),gbl,gbllen)) {
+        if (zend_hash_find(CG(auto_globals),gbl,gbllen,(void**)&auto_global) != FAILURE) {
+            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
+                auto_global->name_len TSRMLS_CC);
+        }
+        else {
+            return FAILURE;
+        }
+    }
+
+    /* Lookup bucket for superglobal. */
+    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+        return FAILURE;
+    }
+    bucket = Z_ARRVAL_PP(arr);
+
+    /* Update zval in hashtable. */
+    zend_hash_update(bucket,key,keylen,&value,sizeof(zval*),NULL);
+
+    return SUCCESS;
+}
+
+#define SET_GLOBAL(g,k,v)                       \
+    set_global(g,sizeof(g),k,sizeof(k),v)
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
@@ -572,6 +605,7 @@ PHP_FUNCTION(uniauth_apply)
     struct uniauth_storage* stor;
     char* sessid = NULL;
     int sesslen = 0;
+    zval* zv;
     char* applicantID;
     int create;
 
@@ -614,11 +648,13 @@ PHP_FUNCTION(uniauth_apply)
      * 'tag' field. We save this so we can reference the applicant session later
      * on in the flow.
      */
-    applicantID = GET_PARAM("_GET","uniauth");
+    zv = GET_GLOBAL("_GET","uniauth");
+    applicantID = zv ? Z_STRVAL_P(zv) : NULL;
     if (applicantID == NULL) {
         if (!create) {
             uniauth_storage_delete(stor);
         }
+        zend_throw_exception(NULL,"no 'uniauth' query parameter was specified",0 TSRMLS_CC);
         return;
     }
     stor->tag = estrdup(applicantID);
@@ -633,6 +669,8 @@ PHP_FUNCTION(uniauth_apply)
     }
 }
 
+/* {{{ proto void uniauth_purge([string key])
+   Ends the current uniauth session */
 PHP_FUNCTION(uniauth_purge)
 {
     struct uniauth_storage local;
@@ -674,4 +712,50 @@ PHP_FUNCTION(uniauth_purge)
         RETURN_TRUE;
     }
     RETURN_FALSE;
+}
+
+/* {{{ proto string uniauth_cookie()
+   Generates and/or retrieves a unique uniauth session and sets this session
+   to be used instead of the PHP session */
+PHP_FUNCTION(uniauth_cookie)
+{
+    zval* sessid;
+
+    // Get the session id from the cookie. If none was found then generate a new
+    // session id.
+    sessid = GET_GLOBAL("_COOKIE","uniauth");
+    if (sessid == NULL) {
+        int i, j;
+        int outlen;
+        unsigned char* outbuf;
+        unsigned char buf[UNIAUTH_COOKIE_IDLEN / 4 * 3];
+        char output[UNIAUTH_COOKIE_IDLEN+1];
+
+        i = 0;
+        while (i < sizeof(buf)) {
+            long n;
+            n = php_rand(TSRMLS_C);
+            RAND_RANGE(n,0,0xff,PHP_RAND_MAX);
+            buf[i] = (unsigned char)n;
+            i += 1;
+        }
+
+        memset(output,'0',sizeof(output));
+        outbuf = php_base64_encode(buf,sizeof(buf),&outlen);
+        if (outbuf == NULL) {
+            RETURN_FALSE;
+        }
+        outlen = (outlen > UNIAUTH_COOKIE_IDLEN ? UNIAUTH_COOKIE_IDLEN : outlen);
+        memcpy(output,outbuf,outlen);
+        efree(outbuf);
+
+        output[UNIAUTH_COOKIE_IDLEN] = 0;
+        ALLOC_ZVAL(sessid);
+        ZVAL_STRING(sessid,output,1);
+    }
+
+    /* Create or touch the cookie. Return the session ID. */
+    php_setcookie("uniauth",sizeof("uniauth")-1,Z_STRVAL_P(sessid),
+        Z_STRLEN_P(sessid),time(NULL) + PS(gc_maxlifetime),"/",1,NULL,0,0,1);
+    RETVAL_ZVAL(sessid,1,1);
 }
