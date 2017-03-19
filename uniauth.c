@@ -564,7 +564,7 @@ PHP_FUNCTION(uniauth_transfer)
 
     /* Lookup the source session so that we can grab the foreign session
      * ID. This should have been recorded in the 'tag' field by a call to
-     * uniauth_begin().
+     * uniauth_apply().
      */
     src = uniauth_connect_lookup(sessid,sesslen,backing);
     if (src == NULL) {
@@ -769,6 +769,7 @@ PHP_FUNCTION(uniauth_apply)
     }
     else {
         uniauth_connect_commit(stor);
+        uniauth_storage_delete(stor);
     }
 }
 
