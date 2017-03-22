@@ -11,6 +11,8 @@
 #include "config.h"
 #endif
 #include <php.h>
+#include <ext/standard/info.h>
+#include <ext/standard/head.h>
 #include <ext/standard/html.h>
 #include <ext/standard/url.h>
 #include <ext/standard/base64.h>
@@ -38,7 +40,7 @@ ZEND_BEGIN_MODULE_GLOBALS(uniauth)
   int conn;
   unsigned long useCookie;
 ZEND_END_MODULE_GLOBALS(uniauth)
-ZEND_DECLARE_MODULE_GLOBALS(uniauth);
+extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);
 
 #ifdef ZTS
 #include "TSRM.h"

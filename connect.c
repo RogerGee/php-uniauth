@@ -27,6 +27,8 @@ void uniauth_storage_delete(struct uniauth_storage* stor)
     efree(stor->tag);
 }
 
+ZEND_DECLARE_MODULE_GLOBALS(uniauth);
+
 static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls TSRMLS_DC)
 {
     gbls->conn = -1;
