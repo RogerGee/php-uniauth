@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #define NAME            "uniauthd"
-#define VERSION         "0.1.0"
+#define VERSION         "1.0.0"
 #define REALTIME_SIGNAL SIGRTMIN
 #define TIMER_INTERVAL  1800
 
@@ -113,6 +113,36 @@ int main(int argc,char* argv[])
     struct itimerval timerval;
     struct uniauth_daemon_globals globals;
 
+    /* Initialize and parse global options from command-line. */
+    globals_init(&globals);
+    parse_options(&globals,argc,argv);
+    g_Globals = &globals;
+
+    /* Handle options that produce output on the terminal before becoming a
+     * daemon.
+     */
+    if (globals.options.doVersion) {
+        printf("%s %s\n",NAME,VERSION);
+        exit(EXIT_SUCCESS);
+    }
+    if (globals.options.doHelp) {
+        printf(
+            "%s %s\n"
+            "usage: %s [options...]\n"
+            "\n"
+            "options:\n"
+            "  --help            Show this help text\n"
+            "  --version         Print version info\n",
+            "  --no-daemon       Do not detach from controlling terminal\n"
+            NAME,VERSION,NAME);
+        exit(EXIT_SUCCESS);
+    }
+
+    /* Become a daemon (unless specified otherwise). */
+    if (!globals.options.nodaemon) {
+        daemonize();
+    }
+
     /* Create a signal handler for terminating the daemon. */
     memset(&action,0,sizeof(struct sigaction));
     action.sa_handler = term_signal;
@@ -138,41 +168,11 @@ int main(int argc,char* argv[])
         fatal_error("fail setitimer(): %s",strerror(errno));
     }
 
-    /* Initialize and parse global options from command-line. */
-    globals_init(&globals);
-    parse_options(&globals,argc,argv);
-
-    g_Globals = &globals;
-
-    /* Handle options that produce output on the terminal before becoming a
-     * daemon.
-     */
-    if (globals.options.doVersion) {
-        printf("%s %s\n",NAME,VERSION);
-        exit(EXIT_SUCCESS);
-    }
-    if (globals.options.doHelp) {
-        printf(
-            "%s %s\n"
-            "usage: %s [options...]\n"
-            "\n"
-            "options:\n"
-            "  --help            Show this help text\n"
-            "  --version         Print version info\n",
-            "  --no-daemon       Do not detach from controlling terminal\n"
-            NAME,VERSION,NAME);
-        exit(EXIT_SUCCESS);
-    }
-
-    /* Become a daemon (unless specified otherwise) and begin main server
-     * operation.
-     */
-    if (!globals.options.nodaemon) {
-        daemonize();
-    }
+    /* Begin main server operation. */
     create_server(&globals);
     run_server(&globals);
 
+    /* Cleanup */
     globals_delete(&globals);
     return EXIT_SUCCESS;
 }
