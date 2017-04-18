@@ -50,6 +50,72 @@ def command(com,data):
     msg += "\xff"
     return msg
 
+def extract_string(src,it):
+    st = it
+    while it < len(src) and src[it] != "\x00":
+        it += 1
+    return src[st:it]
+
+def print_response(response):
+    type = response[0]
+    if type == "\x00":
+        # message: just read a null terminated string
+        print response[1:len(response)-1]
+    elif type == "\x01":
+        # error: functionally this behaves just like message
+        print response[1:len(response)-1]
+    elif type == "\x02":
+        # record: parse fields
+        i = 1
+        while i < len(response):
+            fieldNo = response[i]
+            i += 1
+            t = "null"
+            if fieldNo == "\x00":
+                t = "string"
+                s = "  key: "
+            elif fieldNo == "\x01":
+                t = "int"
+                s = "  id: "
+            elif fieldNo == "\x02":
+                t = "string"
+                s = "  user: "
+            elif fieldNo == "\x03":
+                t = "string"
+                s = "  display: "
+            elif fieldNo == "\x04":
+                t = "long"
+                s = "  expire: "
+            elif fieldNo == "\x05":
+                t = "string"
+                s = "  redirect: "
+            elif fieldNo == "\x06":
+                t = "string"
+                s = "  transsrc: "
+            elif fieldNo == "\x07":
+                t = "string"
+                s = "  transdst: "
+            elif fieldNo == "\x08":
+                t = "string"
+                s = "  tag: "
+            elif fieldNo == "\xff":
+                break
+
+            if t == "string":
+                ss = extract_string(response,i)
+                i += len(ss) + 1
+                s += ss
+            elif t == "int":
+                ss = response[i:i+4]
+                i += 4
+                s += str(unpack("<i",ss)[0])
+            elif t == "long":
+                ss = response[i:i+8]
+                i += 8
+                s += str(unpack("<q",ss)[0])
+
+            print s
+
 addr = "\0uniauth"
 sock = socket(AF_UNIX,SOCK_STREAM)
 sock.connect(addr)
@@ -75,5 +141,11 @@ while True:
     msg = command(com,data)
     if len(msg) == 0:
         continue
+    print "wrote bytes:", msg.encode('hex')
     print "wrote", sock.send(msg), "bytes"
-    print ''.join(x if x in string.printable else '\\x'+x.encode('hex') for x in sock.recv(4096))
+
+    response = sock.recv(4096)
+    print "received", response.encode('hex')
+    print "received", len(response), "bytes"
+    print_response(response)
+    print "-" * 80
