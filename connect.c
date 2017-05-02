@@ -564,7 +564,7 @@ int uniauth_connect_transfer(const char* src,const char* dst)
     if (!buffer_field_string(buffer,sizeof(buffer),&iter,
             UNIAUTH_PROTO_FIELD_TRANSSRC,src,strlen(src))
         || !buffer_field_string(buffer,sizeof(buffer),&iter,
-            UNIAUTH_PROTO_FIELD_TRANSDST,src,strlen(dst))
+            UNIAUTH_PROTO_FIELD_TRANSDST,dst,strlen(dst))
         || !buffer_field_end(buffer,sizeof(buffer),&iter))
     {
         php_error(E_ERROR,"protocol message is too large");
