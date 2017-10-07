@@ -1,4 +1,4 @@
-php-uniauth - v1.0.1
+php-uniauth - v1.1.0
 --------------------------------------------------------------------------------
 This project provides a PHP extension and Linux daemon for performing universal
 authentication among different sites running on the same host (including
@@ -7,6 +7,7 @@ consists of an extension that provides PHP userspace an interface for connecting
 with the uniauth daemon (also provided in this repository).
 
 Primary author:
+
     Roger Gee <rpg11a@acu.edu>
 
 --------------------------------------------------------------------------------
@@ -144,8 +145,8 @@ PHP Userspace Functions Detail
         redirect flow happens transparently.
 
         If the second parameter is specified, then the function uses the
-        requested session ID. Otherwise, the PHP session ID is used unless
-        uniauth_cookie() was previously called.
+        requested session ID. Otherwise, the current PHP session ID is used
+        unless uniauth_cookie() was previously called.
 
         Return value: an array with the following keys pulled from the uniauth
         session:

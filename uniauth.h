@@ -51,4 +51,11 @@ extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);
     (uniauth_globals.v)
 #endif
 
+/* Routines for initializing global data. These are handled by the connect
+ * module since we have a global socket connection that needs to be shutdown.
+ */
+void uniauth_globals_init();
+void uniauth_globals_request_init();
+void uniauth_globals_shutdown();
+
 #endif

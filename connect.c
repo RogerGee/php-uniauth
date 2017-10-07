@@ -54,6 +54,11 @@ void uniauth_globals_init()
 #endif
 }
 
+void uniauth_globals_request_init()
+{
+    UNIAUTH_G(useCookie) = 0;
+}
+
 void uniauth_globals_shutdown()
 {
 #ifndef ZTS

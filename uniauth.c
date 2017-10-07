@@ -84,6 +84,7 @@ PHP_MSHUTDOWN_FUNCTION(uniauth)
 
 PHP_RINIT_FUNCTION(uniauth)
 {
+    uniauth_globals_request_init();
 
     return SUCCESS;
 }

@@ -16,12 +16,6 @@
 /* Functions to manipulate a uniauth record in the PHP extension */
 void uniauth_storage_delete(struct uniauth_storage* stor);
 
-/* Routines for initializing global data. These are handled by the connect
- * module since we have a global socket connection that needs to be shutdown.
- */
-void uniauth_globals_init();
-void uniauth_globals_shutdown();
-
 /* Connect commands; these wrap a protocol operation */
 struct uniauth_storage* uniauth_connect_lookup(const char* key,size_t keylen,
     struct uniauth_storage* backing);
