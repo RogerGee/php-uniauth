@@ -478,8 +478,9 @@ PHP_FUNCTION(uniauth)
     /* Terminate user script. */
     zend_bailout();
 }
+/* }}} */
 
-/* {{{ proto void uniauth_register(int id, string name, string displayName [, string key])
+/* {{{ proto void uniauth_register(int id, string name, string displayName [, string key, int lifetime])
    Registers user information with the current session */
 PHP_FUNCTION(uniauth_register)
 {
@@ -493,6 +494,7 @@ PHP_FUNCTION(uniauth_register)
     char* sessid = NULL;
     int sesslen = 0;
     long lifetime = PS(gc_maxlifetime);
+    time_t expire = 0;
     zval* zv;
 
     /* Grab id parameter from userspace. */
@@ -525,8 +527,14 @@ PHP_FUNCTION(uniauth_register)
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
-        stor->expire = time(NULL) + lifetime;
-        stor->lifetime = lifetime;
+        if (lifetime <= 0) {
+            stor->expire = time(NULL) + PS(gc_maxlifetime);
+            stor->lifetime = PS(gc_maxlifetime);
+        }
+        else {
+            stor->expire = expire = time(NULL) + lifetime;
+            stor->lifetime = lifetime;
+        }
 
         uniauth_connect_commit(stor);
     }
@@ -540,20 +548,29 @@ PHP_FUNCTION(uniauth_register)
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
-        stor->expire = time(NULL) + lifetime;
-        stor->lifetime = lifetime;
+        if (lifetime <= 0) {
+            stor->expire = time(NULL) + PS(gc_maxlifetime);
+            stor->lifetime = PS(gc_maxlifetime);
+        }
+        else {
+            stor->expire = expire = time(NULL) + lifetime;
+            stor->lifetime = lifetime;
+        }
 
         uniauth_connect_create(stor);
     }
 
-    /* Update uniauth cookie to have current expiration. */
+    /* Update uniauth cookie to have current expiration or no expiration if the
+     * user specified a non-positive value for lifetime.
+     */
     if (UNIAUTH_G(useCookie)) {
-        set_uniauth_cookie(stor->key,stor->keySz,stor->expire);
+        set_uniauth_cookie(stor->key,stor->keySz,expire);
     }
 
     /* Free uniauth record fields. */
     uniauth_storage_delete(stor);
 }
+/* }}} */
 
 /* {{{ proto void uniauth_transfer([string key])
    Completes the auth flow by transferring the current uniauth record into the
@@ -647,6 +664,7 @@ PHP_FUNCTION(uniauth_transfer)
     /* Terminate user script to perform redirect. */
     zend_bailout();
 }
+/* }}} */
 
 /* {{{ proto bool uniauth_check([string key])
    Determines if an authentication session exists */
@@ -679,6 +697,7 @@ PHP_FUNCTION(uniauth_check)
     }
     RETURN_FALSE;
 }
+/* }}} */
 
 /* {{{ proto void uniauth_apply([string key])
    Begins the application process by creating the registrar session and assigning
@@ -744,6 +763,7 @@ PHP_FUNCTION(uniauth_apply)
         uniauth_storage_delete(stor);
     }
 }
+/* }}} */
 
 /* {{{ proto void uniauth_purge([string key])
    Ends the current uniauth session */
@@ -781,6 +801,7 @@ PHP_FUNCTION(uniauth_purge)
     }
     RETURN_FALSE;
 }
+/* }}} */
 
 /* {{{ proto string uniauth_cookie()
    Generates and/or retrieves a unique uniauth session and sets this session
@@ -877,3 +898,4 @@ PHP_FUNCTION(uniauth_cookie)
      */
     RETVAL_ZVAL(sessid,1,0);
 }
+/* }}} */

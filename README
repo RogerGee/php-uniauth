@@ -148,6 +148,10 @@ PHP Userspace Functions Detail
         requested session ID. Otherwise, the current PHP session ID is used
         unless uniauth_cookie() was previously called.
 
+            url - The url of the registrar endpoint handling the authentication
+
+            sessionId - Uniauth session ID to use
+
         Return value: an array with the following keys pulled from the uniauth
         session:
 
@@ -157,8 +161,12 @@ PHP Userspace Functions Detail
 
     bool uniauth_check([string sessionId])
 
-        This function determines if an authenticated session exists. The session
-        ID is determined in the same way as in the uniauth() function.
+        This function determines if an authenticated session exists.
+
+            sessionId - Uniauth session ID to use (optional)
+
+                The actual session ID used is determined in the same way as in
+                the uniauth() function.
 
         Return value: true is returned if the specified session exists and is
         authenticated. False is returned if the specified session does not exist
@@ -167,13 +175,18 @@ PHP Userspace Functions Detail
     void uniauth_apply([string sessionId])
 
         This function creates a uniauth session for the registrar endpoint
-        application. The function annotates the new registrar session with the
-        applicant session ID, which is passed in using a 'uniauth' query
-        parameter in the request.
+        application (if it doesn't exist). The function annotates the new
+        registrar session with the applicant session ID, which is passed in
+        using a 'uniauth' query parameter in the request.
 
         This function should only be called in the initial GET request to the
         registrar endpoint. It must be called before any uniauth_transfer() call
         would succeed.
+
+            sessionId - Uniauth session ID to use (optional)
+
+                The actual session ID used is determined in the same way as in
+                the uniauth() function.
 
         The session ID is determined in the same way as in the uniauth()
         function.
@@ -185,10 +198,27 @@ PHP Userspace Functions Detail
         current/specified uniauth session. After the call, the session is now
         authenticated.
 
-        The session ID is determined in the same way as in the uniauth()
-        function. The lifetime defines how long from the current instant the
-        uniauth session should live. By default, this will align with the
-        php.ini value session.gc_maxlifetime.
+            id - Application-defined user ID for the session
+
+            name - Application-defined user name for the session
+
+            displayName - Application-defined user display name for the session
+
+            sessionId - Uniauth session ID to use (optional)
+
+                The actual session ID used is determined in the same way as in
+                the uniauth() function.
+
+            lifetime - Defines the session lifetime starting from the current instant (optional)
+
+                If this value is omitted, then the lifetime is set to the value
+                of the php.ini option "session.gc_maxlifetime".
+
+                If uniauth cookies have been switched on (via a call to
+                uniauth_cookie()), then this also defines the cookie
+                expiration. However if the lifetime value is zero or negative,
+                then the cookie will have no expiration. This later feature
+                should be exploited to implement non-persistent sessions.
 
     void uniauth_transfer([string sessionId])
 
@@ -196,19 +226,24 @@ PHP Userspace Functions Detail
         (i.e. the source session) into another (i.e. the destination
         session). Internally this merely updates the destination session to
         point at the source session. Practically, the source session is the
-        registrar session and the destination is the applicant
-
-        The source session ID is determined in the usual way (see documentation
-        for the uniauth() function) which may involve the first parameter if
-        specified.
+        registrar session and the destination is the applicant session.
 
         The destination session ID is pulled from the source session. It was set
         previously in a call to uniauth_apply().
 
+            sessionId - Uniauth session ID to use (optional)
+
+                The actual session ID used is determined in the same way as in
+                the uniauth() function.
+
     void uniauth_purge([string sessionId])
 
-        This functions ends the current uniauth session. The session ID is
-        determined in the same way as in calls to uniauth().
+        This functions ends the current uniauth session.
+
+            sessionId - Uniauth session ID to use (optional)
+
+                The actual session ID used is determined in the same way as in
+                the uniauth() function.
 
         Note: this function merely invalidates the uniauth session. The session
         lifetime actually persists, which means the backend record can be reused
