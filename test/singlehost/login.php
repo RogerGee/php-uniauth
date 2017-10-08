@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($user == "john" && $pass == "alphabet") {
             try {
                 error_log('register');
-                uniauth_register(1,'john','John Doe');
+                uniauth_register(1,'john','John Doe',null,30);
                 error_log('transfer');
                 uniauth_transfer();
 

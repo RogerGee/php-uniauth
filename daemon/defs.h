@@ -33,9 +33,10 @@ struct uniauth_storage
     char* displayName;    /* the user display name */
     size_t displayNameSz; /* cache length of user display name string */
 
-    /* UNIX time when this record should be forgotten. */
+    /* Storage record lifetime information. */
 
-    int64_t expire;
+    int64_t expire;       /* UNIX timestamp when the session is set to expire */
+    int32_t lifetime;     /* number of seconds storage record is allowed to live */
 
     /* Redirect URI as provided by applicant. */
 
@@ -73,6 +74,7 @@ struct uniauth_storage
 #define UNIAUTH_PROTO_FIELD_TRANSSRC 0x06
 #define UNIAUTH_PROTO_FIELD_TRANSDST 0x07
 #define UNIAUTH_PROTO_FIELD_TAG      0x08
+#define UNIAUTH_PROTO_FIELD_LIFETIME 0x09
 #define UNIAUTH_PROTO_FIELD_END      (char)0xff
 
 #define UNIAUTH_INT_SZ  4

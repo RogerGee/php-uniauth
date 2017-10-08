@@ -200,6 +200,7 @@ static int uniauth_connect_recv(int sock,char* buffer,size_t maxsz,size_t* iter)
                 i += 1;
                 break;
             case UNIAUTH_PROTO_FIELD_ID:
+            case UNIAUTH_PROTO_FIELD_LIFETIME:
                 i += 4;
                 break;
             case UNIAUTH_PROTO_FIELD_EXPIRE:
@@ -299,6 +300,8 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
                 UNIAUTH_PROTO_FIELD_REDIRECT,stor->redirect,stor->redirectSz))
         || (stor->tag != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_TAG,stor->tag,stor->tagSz))
+        || (stor->lifetime != 0 && !buffer_field_integer(buffer,maxsz,iter,
+                UNIAUTH_PROTO_FIELD_LIFETIME,stor->lifetime))
         || !buffer_field_end(buffer,maxsz,iter));
  }
 
@@ -401,6 +404,9 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
              break;
          case UNIAUTH_PROTO_FIELD_TAG:
              n = read_field_string(p,z,&stor->tag,&stor->tagSz);
+             break;
+         case UNIAUTH_PROTO_FIELD_LIFETIME:
+             n = read_field_integer((unsigned char*)p,z,&stor->lifetime);
              break;
          }
 

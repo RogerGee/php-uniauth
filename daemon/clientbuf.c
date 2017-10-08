@@ -159,6 +159,9 @@ static int parse_buffer(struct clientbuf* client)
         case UNIAUTH_PROTO_FIELD_TRANSDST:
             nbytes = read_string(client,iter+1,&client->trans.dst,&dummy);
             break;
+        case UNIAUTH_PROTO_FIELD_LIFETIME:
+            nbytes = read_integer(client,iter+1,&client->stor.lifetime);
+            break;
         default:
             client->status = error;
             return 1;
@@ -436,6 +439,10 @@ int clientbuf_send_record(struct clientbuf* client,const char* key,size_t keySz,
         if (stor->tag != NULL && remain-n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_TAG;
             n += transfer_string(buf+n,remain-n,stor->tag,stor->tagSz);
+        }
+        if (stor->lifetime != 0 && remain-n > 0) {
+            buf[n++] = UNIAUTH_PROTO_FIELD_LIFETIME;
+            n += transfer_integer(buf+n,remain-n,stor->lifetime);
         }
         if (remain - n > 0) {
             buf[n++] = UNIAUTH_PROTO_FIELD_END;

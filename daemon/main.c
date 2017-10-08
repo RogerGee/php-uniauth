@@ -460,6 +460,9 @@ static void copy_record(const struct uniauth_storage* src,
     if (src->tag != NULL) {
         copy_record_string(src->tag,src->tagSz,&dst->tag,&dst->tagSz);
     }
+    if (src->lifetime != 0) {
+        dst->lifetime = src->lifetime;
+    }
 }
 
 static void command_commit(struct uniauth_daemon_globals* globals,

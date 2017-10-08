@@ -37,12 +37,12 @@ track its own uniauth records. This frees PHP userspace from having to track
 this information in its session.
 
 If a full-blown session is not required, then a cookie can be used instead. The
-cookie's expiration should be set to align with the session max lifetime, which
-is used to set the uniauth session expiration. To avoid boilerplate associated
-with creating cookies and generating session IDs, the uniauth_cookie() function
-is provided. This function generates a cookie session, overriding the default
-behavior of using the PHP session when using the other extension functions. It
-also sets the cookie so it's transmitted to the user agent.
+cookie's expiration will align with the uniauth storage session expiration. To
+avoid boilerplate associated with creating cookies and generating session IDs,
+the uniauth_cookie() function is provided. This function generates a cookie
+session, overriding the default behavior of using the PHP session when using the
+other extension functions. It also sets the cookie so it's transmitted to the
+user agent.
 
 There are two roles in the flow taken by applications:
 
@@ -178,7 +178,7 @@ PHP Userspace Functions Detail
         The session ID is determined in the same way as in the uniauth()
         function.
 
-    void uniauth_register(int id, string name, string displayName[, string sessionId])
+    void uniauth_register(int id, string name, string displayName[, string sessionId, int lifetime])
 
         This function is used to register (i.e. authenticate) a uniauth
         session. It pushes the specified user information into the
@@ -186,7 +186,9 @@ PHP Userspace Functions Detail
         authenticated.
 
         The session ID is determined in the same way as in the uniauth()
-        function.
+        function. The lifetime defines how long from the current instant the
+        uniauth session should live. By default, this will align with the
+        php.ini value session.gc_maxlifetime.
 
     void uniauth_transfer([string sessionId])
 
@@ -239,6 +241,9 @@ PHP Userspace Functions Detail
         can also be grabbed from the $_COOKIE superglobal (without another
         request) since the function makes sure the cookie's value is set as part
         of its implementation.
+
+        NOTE: using uniauth cookies will overwrite any existing cookies! You
+        should always make uniauth calls before any other calls to set cookies!
 
 --------------------------------------------------------------------------------
 Limitations
