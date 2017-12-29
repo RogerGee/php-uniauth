@@ -211,14 +211,13 @@ PHP Userspace Functions Detail
 
             lifetime - Defines the session lifetime starting from the current instant (optional)
 
-                If this value is omitted, then the lifetime is set to the value
-                of the php.ini option "session.gc_maxlifetime".
+                If this value is omitted or a non-positive number, then the
+                uniauth session will have a lifetime equal to the value of the
+                php.ini option "session.gc_maxlifetime" and the uniauth cookie
+                (if any) is a persistent cookie.
 
-                If uniauth cookies have been switched on (via a call to
-                uniauth_cookie()), then this also defines the cookie
-                expiration. However if the lifetime value is zero or negative,
-                then the cookie will have no expiration. This later feature
-                should be exploited to implement non-persistent sessions.
+                Otherwise the uniauth session has the specified lifetime and the
+                uniauth cookie (if any) will be a session cookie.
 
     void uniauth_transfer([string sessionId])
 

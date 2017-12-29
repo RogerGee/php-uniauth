@@ -9,6 +9,12 @@
 #include "uniauth.h"
 #include "connect.h"
 
+/* Lifetime: a session has indefinate lifetime if its value is less-than or
+ * equal to zero. An indefinate session gets a lifetime of the
+ * session.gc_maxlifetime value defined by the session extension.
+ */
+#define LIFETIME(lifetime) (lifetime <= 0 ? PS(gc_maxlifetime) : lifetime)
+
 /* Module/request functions */
 static PHP_MINIT_FUNCTION(uniauth);
 static PHP_MINFO_FUNCTION(uniauth);
@@ -299,8 +305,11 @@ static void set_uniauth_cookie(char* id,int id_len,time_t expires)
 static inline int uniauth_set_expire(struct uniauth_storage* stor)
 {
     time_t now = time(NULL);
-    if (stor->expire == 0 || stor->expire - now < stor->lifetime / 2) {
-        stor->expire = now + stor->lifetime;
+    int lifetime = LIFETIME(stor->lifetime);
+    int diff = stor->expire - now;
+
+    if (stor->expire == 0 || (diff > 0 && diff < lifetime / 2)) {
+        stor->expire = now + lifetime;
         return 1;
     }
 
@@ -493,8 +502,8 @@ PHP_FUNCTION(uniauth_register)
     int displaynamelen;
     char* sessid = NULL;
     int sesslen = 0;
-    long lifetime = PS(gc_maxlifetime);
-    time_t expire = 0;
+    long lifetime = 0;
+    time_t expires = 0;
     zval* zv;
 
     /* Grab id parameter from userspace. */
@@ -508,6 +517,10 @@ PHP_FUNCTION(uniauth_register)
         sessid = get_default_sessid(&sesslen);
     }
 
+    if (lifetime < 0) {
+        lifetime = 0;
+    }
+
     /* Lookup the uniauth_storage for the session. Create one if does not
      * exist. Then assign the id to the structure. An expiration is created
      * since we want this session to live (so we can keep registering new
@@ -515,7 +528,9 @@ PHP_FUNCTION(uniauth_register)
      */
     stor = uniauth_connect_lookup(sessid,sesslen,&backing);
     if (stor != NULL) {
-        /* We will always override any current value. */
+        /* Set storage parameters. We will always override any existing
+         * values.
+         */
         stor->id = id;
         if (stor->username != NULL) {
             efree(stor->username);
@@ -527,13 +542,10 @@ PHP_FUNCTION(uniauth_register)
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
-        if (lifetime <= 0) {
-            stor->expire = time(NULL) + PS(gc_maxlifetime);
-            stor->lifetime = PS(gc_maxlifetime);
-        }
-        else {
-            stor->expire = expire = time(NULL) + lifetime;
-            stor->lifetime = lifetime;
+        stor->expire = time(NULL) + LIFETIME(lifetime);
+        stor->lifetime = lifetime;
+        if (lifetime == 0) {
+            expires = stor->expire;
         }
 
         uniauth_connect_commit(stor);
@@ -548,23 +560,22 @@ PHP_FUNCTION(uniauth_register)
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
-        if (lifetime <= 0) {
-            stor->expire = time(NULL) + PS(gc_maxlifetime);
-            stor->lifetime = PS(gc_maxlifetime);
-        }
-        else {
-            stor->expire = expire = time(NULL) + lifetime;
-            stor->lifetime = lifetime;
+        stor->expire = time(NULL) + LIFETIME(lifetime);
+        stor->lifetime = lifetime;
+        if (lifetime == 0) {
+            expires = stor->expire;
         }
 
         uniauth_connect_create(stor);
     }
 
-    /* Update uniauth cookie to have current expiration or no expiration if the
-     * user specified a non-positive value for lifetime.
+    /* Update uniauth cookie expiration. The cookie expiration is only set
+     * (i.e. positive) when we are creating a persistent session that has an
+     * indefinate lifetime. Otherwise we always produce a session cookie with no
+     * expiration.
      */
     if (UNIAUTH_G(useCookie)) {
-        set_uniauth_cookie(stor->key,stor->keySz,expire);
+        set_uniauth_cookie(stor->key,stor->keySz,expires);
     }
 
     /* Free uniauth record fields. */
@@ -861,7 +872,7 @@ PHP_FUNCTION(uniauth_cookie)
 
         stor = uniauth_connect_lookup(Z_STRVAL_P(sessid),Z_STRLEN_P(sessid),&local);
         if (stor != NULL) {
-            if (stor->expire > 0 && stor->lifetime > 0) {
+            if (stor->expire > 0) {
                 /* We touch the cookie if the redirect was set to transfer
                  * (indicating the session was just registered) or if the
                  * storage record's expiration should update.
@@ -876,7 +887,13 @@ PHP_FUNCTION(uniauth_cookie)
                     touch = uniauth_set_expire(stor);
                 }
 
-                expires = stor->expire;
+                /* Set cookie expiration if there is an indefinate lifetime on
+                 * the record. This makes the cookie persistent with a lifetime
+                 * aligned with the session record.
+                 */
+                if (stor->lifetime == 0) {
+                    expires = stor->expire;
+                }
             }
 
             uniauth_storage_delete(stor);
