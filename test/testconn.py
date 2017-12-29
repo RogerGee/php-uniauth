@@ -98,6 +98,9 @@ def print_response(response):
             elif fieldNo == "\x08":
                 t = "string"
                 s = "  tag: "
+            elif fieldNo == "\x09":
+                t = "int"
+                s = "  lifetime: "
             elif fieldNo == "\xff":
                 break
 
