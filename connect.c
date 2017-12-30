@@ -1,5 +1,9 @@
 /*
  * connect.c
+ *
+ * This file is a part of php-uniauth.
+ *
+ * Copyright (C) 2016-2017 Roger P. Gee
  */
 
 #include "connect.h"

@@ -3,6 +3,8 @@
  *
  * This file is a part of php-uniauth.
  *
+ * Copyright (C) 2016-2017 Roger P. Gee
+ *
  * The functionality provided by this module includes the connection API used by
  * the PHP extension to fetch/commit uniauth records. Since these functions are
  * designed to be called within a request context, they use the PHP per-request

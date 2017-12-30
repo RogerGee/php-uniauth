@@ -11,9 +11,9 @@
 
 /* Lifetime: a session has indefinate lifetime if its value is less-than or
  * equal to zero. An indefinate session gets a lifetime of the
- * session.gc_maxlifetime value defined by the session extension.
+ * uniauth.lifetime value defined by the extension's initialization settings.
  */
-#define LIFETIME(lifetime) (lifetime <= 0 ? PS(gc_maxlifetime) : lifetime)
+#define LIFETIME(lifetime) (lifetime <= 0 ? INI_INT(UNIAUTH_LIFETIME_INI) : lifetime)
 
 /* Module/request functions */
 static PHP_MINIT_FUNCTION(uniauth);
@@ -66,11 +66,18 @@ zend_module_entry uniauth_module_entry = {
 ZEND_GET_MODULE(uniauth)
 #endif
 
+/* Uniauth INI settings */
+
+PHP_INI_BEGIN()
+PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
+PHP_INI_END()
+
 /* Implementation of module/request functions */
 
 PHP_MINIT_FUNCTION(uniauth)
 {
     uniauth_globals_init();
+    REGISTER_INI_ENTRIES();
 
     return SUCCESS;
 }
@@ -88,6 +95,7 @@ PHP_MINFO_FUNCTION(uniauth)
 PHP_MSHUTDOWN_FUNCTION(uniauth)
 {
     uniauth_globals_shutdown();
+    UNREGISTER_INI_ENTRIES();
 
     return SUCCESS;
 }

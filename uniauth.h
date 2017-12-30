@@ -1,5 +1,9 @@
 /*
  * uniauth.h
+ *
+ * This file is a part of php-uniauth.
+ *
+ * Copyright (C) 2016-2017 Roger P. Gee
  */
 
 #ifndef UNIAUTH_H
@@ -27,12 +31,14 @@
 /* Definitions */
 
 #define PHP_UNIAUTH_EXTNAME "uniauth"
-#define PHP_UNIAUTH_EXTVER  "1.0.1"
+#define PHP_UNIAUTH_EXTVER  "1.1.0"
 
 #define LOCATION_HEADER "Location: "
 #define UNIAUTH_QSTRING "?uniauth="
 
 #define UNIAUTH_COOKIE_IDLEN 64
+
+#define UNIAUTH_LIFETIME_INI "uniauth.lifetime"
 
 /* Uniauth module globals */
 

@@ -2,6 +2,8 @@
  * clientbuf.c
  *
  * This file is a part of uniauth/daemon.
+ *
+ * Copyright (C) 2016-2017 Roger P. Gee
  */
 
 #include "clientbuf.h"

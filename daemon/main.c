@@ -2,6 +2,8 @@
  * main.c
  *
  * This file is a part of uniauth/daemon.
+ *
+ * Copyright (C) 2016-2017  Roger P. Gee
  */
 
 #define _GNU_SOURCE
@@ -26,7 +28,7 @@
 #include <unistd.h>
 
 #define NAME            "uniauthd"
-#define VERSION         "1.0.0"
+#define VERSION         "1.1.0"
 #define REALTIME_SIGNAL SIGRTMIN
 #define TIMER_INTERVAL  1800
 
