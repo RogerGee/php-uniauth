@@ -360,7 +360,7 @@ static char* get_default_sessid(int* out_len)
                 NULL,
                 "no uniauth cookie session available",
                 0 TSRMLS_CC);
-            return;
+            return NULL;
         }
         sessid = Z_STRVAL_P(zv);
         sesslen = Z_STRLEN_P(zv);
@@ -372,7 +372,7 @@ static char* get_default_sessid(int* out_len)
                 NULL,
                 "no PHP session is available",
                 0 TSRMLS_CC);
-            return;
+            return NULL;
         }
         sesslen = strlen(sessid);
     }
@@ -383,16 +383,17 @@ static char* get_default_sessid(int* out_len)
 
 /* Implementation of PHP userspace functions */
 
-/* {{{ proto array uniauth(string url [, string key])
-   Looks up authentication session information or begins the uniauth flow if none found */
+/* {{{ proto array uniauth([string url, string key])
+   Looks up authentication session information or otherwise begins the uniauth
+   flow if given authentication endpoint url. */
 PHP_FUNCTION(uniauth)
 {
     struct uniauth_storage local;
     struct uniauth_storage* stor;
-    char* sessid = NULL;
-    int sesslen = 0;
     char* url = NULL;
     int urllen = 0;
+    char* sessid = NULL;
+    int sesslen = 0;
     sapi_header_line ctr = {0};
     char* encoded;
     int newlen = 0;
@@ -401,26 +402,30 @@ PHP_FUNCTION(uniauth)
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
      */
-    if (zend_parse_parameters(ZEND_NUM_ARGS(),"s|s",&url,&urllen,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s!s",&url,&urllen,
             &sessid,&sesslen) == FAILURE)
     {
-        return;
+        RETURN_FALSE;
     }
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     /* Check to see if we have a user ID for the session. */
     stor = uniauth_connect_lookup(sessid,sesslen,&local);
     if (stor != NULL) {
-        /* Touch the expire time so we keep the session alive. The daemon does
-         * not set expire times.
-         */
-        uniauth_touch_record(stor);
+        /* Check if user ID number is valid. */
+        if (IS_VALID_USER_ID(stor->id)) {
+            /* Touch the expire time so we keep the session alive. The daemon
+             * does not set expire times.
+             */
+            uniauth_touch_record(stor);
 
-        /* ID must be set. */
-        if (stor->id >= 1) {
             /* Return user info array to userspace. */
             array_init(return_value);
             add_assoc_long(return_value,"id",stor->id);
@@ -443,18 +448,33 @@ PHP_FUNCTION(uniauth)
             /* Control no longer in function. */
         }
 
+        /* If no redirect URL was provided, then we just return null to indicate
+         * that no session is available.
+         */
+        if (url == NULL) {
+            uniauth_storage_delete(stor);
+            RETURN_NULL();
+        }
+
         /* If the ID was not set, then we update the redirect URI and continue
          * to redirect the script.
          */
         if (!set_redirect_uri(stor)) {
             uniauth_storage_delete(stor);
-            return;
+            RETURN_FALSE;
         }
 
         /* Commit redirect URI changes back to server. */
         uniauth_connect_commit(stor);
     }
     else {
+        /* If no redirect URL was provided, then we just return null to indicate
+         * that no session is available.
+         */
+        if (url == NULL) {
+            RETURN_NULL();
+        }
+
         /* Create a new entry. The expiration time and lifetime will be 0. This
          * means the session is marked as a temporary session until
          * authentication has been performed.
@@ -467,7 +487,7 @@ PHP_FUNCTION(uniauth)
         /* Fill out stor->redirect. */
         if (!set_redirect_uri(stor)) {
             uniauth_storage_delete(stor);
-            return;
+            RETURN_FALSE;
         }
 
         /* Send new record to the uniauth daemon. */
@@ -526,6 +546,10 @@ PHP_FUNCTION(uniauth_register)
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     if (lifetime < 0) {
@@ -615,6 +639,10 @@ PHP_FUNCTION(uniauth_transfer)
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     /* Lookup the source session so that we can grab the foreign session
@@ -706,6 +734,10 @@ PHP_FUNCTION(uniauth_check)
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     /* Check to see if we have a user ID for the session. If so, return true. */
@@ -741,6 +773,10 @@ PHP_FUNCTION(uniauth_apply)
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     /* Query the registrar session in case it already exists. We'll create it if
@@ -805,6 +841,10 @@ PHP_FUNCTION(uniauth_purge)
 
     if (sessid == NULL) {
         sessid = get_default_sessid(&sesslen);
+
+        if (sessid == NULL) {
+            RETVAL_FALSE;
+        }
     }
 
     /* If the session is valid, invalidate it. */
@@ -875,7 +915,7 @@ PHP_FUNCTION(uniauth_cookie)
     }
     else {
         /* If a cookie was already sent, then lookup the uniauth record to
-         * determine the expires value and if we need to touch it.
+         * determine the expires value and if we need to touch the cookie.
          */
 
         struct uniauth_storage local;

@@ -87,7 +87,7 @@ When calling a registrar endpoint, one of two things can happen.
 1. There is no uniauth session for the registrar:
 
     In this case a session must be created and authenticated. The registrar
-    endpoitn calls uniauth_apply() to begin this process. This function takes
+    endpoint calls uniauth_apply() to begin this process. This function takes
     the query parameter passed from the applicant's call to uniauth() and stores
     it in a new uniauth session. It must set a cookie (possibly via
     uniauth_cookie()) or use the PHP session to track this uniauth session.
@@ -134,12 +134,20 @@ PHP Userspace Functions Detail
         values or cookies or aborting the script. Make sure you are aware of
         these.
 
-    array uniauth(string url[, string sessionId])
+    array uniauth([string url, string sessionId])
 
-        This function looks up an authenticated uniauth session. It returns the
-        session information if an authenticated session was found. If not, the
-        function sends a redirect header pointing at the specified URL for the
-        registrar endpoint. It then aborts the script.
+        This function looks up an authenticated uniauth session.
+
+        The function returns the session information as a login array if an
+        authenticated session was found. If not, the function's behavior depends
+        on whether an authentication endpoint url was specified:
+
+            If an authentication endpoint url was specified, the function sends
+            a redirect header pointing at the specified URL for the registrar
+            endpoint. It then aborts the script.
+
+            Otherwise (if url=null) the function just returns null, indicating
+            that no authenticated session was available.
 
         The calling script has no awareness that a redirect occurred. Thus the
         redirect flow happens transparently.
@@ -148,9 +156,12 @@ PHP Userspace Functions Detail
         requested session ID. Otherwise, the current PHP session ID is used
         unless uniauth_cookie() was previously called.
 
-            url - The url of the registrar endpoint handling the authentication
+            url - The url of the registrar endpoint handling the
+            authentication. This parameter may be null to avoid a redirect and
+            just query the status of a uniauth session.
 
-            sessionId - Uniauth session ID to use
+            sessionId - An override uniauth session ID to use in place of the
+            default behavior.
 
         Return value: an array with the following keys pulled from the uniauth
         session:
@@ -161,7 +172,8 @@ PHP Userspace Functions Detail
 
     bool uniauth_check([string sessionId])
 
-        This function determines if an authenticated session exists.
+        This function determines if an authenticated session exists. It does not
+        update the session expiration.
 
             sessionId - Uniauth session ID to use (optional)
 
@@ -171,6 +183,15 @@ PHP Userspace Functions Detail
         Return value: true is returned if the specified session exists and is
         authenticated. False is returned if the specified session does not exist
         or exists but is not authenticated.
+
+        NOTE: This function is largely obsolete due to changes to the uniauth()
+        function. Prefer calling uniauth(null) over using uniauth_check() when
+        needing to conditionally obtain a session's login array.
+
+            GOOD: $login = uniauth(null);
+
+            BAD: if (uniauth_check()) $login = uniauth('http://auth.tld')
+                 else $login = null;
 
     void uniauth_apply([string sessionId])
 
@@ -194,9 +215,9 @@ PHP Userspace Functions Detail
     void uniauth_register(int id, string name, string displayName[, string sessionId, int lifetime])
 
         This function is used to register (i.e. authenticate) a uniauth
-        session. It pushes the specified user information into the
-        current/specified uniauth session. After the call, the session is now
-        authenticated.
+        session. It assigns the specified user information into the
+        current/specified uniauth session. After a successful call, the session
+        is now authenticated.
 
             id - Application-defined user ID for the session
 
@@ -213,8 +234,10 @@ PHP Userspace Functions Detail
 
                 If this value is omitted or a non-positive number, then the
                 uniauth session will have a lifetime equal to the value of the
-                php.ini option "session.gc_maxlifetime" and the uniauth cookie
-                (if any) is a persistent cookie.
+                php.ini option "uniauth.lifetime" and the uniauth cookie (if
+                any) is a persistent cookie. The default value for
+                "uniauth.lifetime" is 86400, or 1 day; the value for this
+                setting indicates the number of seconds for the lifetime.
 
                 Otherwise the uniauth session has the specified lifetime and the
                 uniauth cookie (if any) will be a session cookie.
@@ -259,7 +282,7 @@ PHP Userspace Functions Detail
         cookie already exists, it merely continues to use that session ID.
 
         Another vital behavior of this function is that it overrides the default
-        behavior of most uniauth functions when determining the session
+        behavior of most uniauth functions when determining the default session
         ID. Instead of using the PHP session by default, the functions' default
         behavior will be to use the uniauth cookie. For example:
 
@@ -282,9 +305,10 @@ PHP Userspace Functions Detail
 --------------------------------------------------------------------------------
 Limitations
 
-A unique registrar session can only handle one applicant at a time. If another
-applicant registers before the auth flow has completed, it will take precedence,
-causing the application to redirect to the incorrect endpoint.
+A unique registrar session can only handle one pending applicant at a time. If
+another applicant registers before the auth flow has completed, it will take
+precedence, causing the application to redirect to the latest applicant's
+original endpoint.
 
 Memory for records are allocated preemptively since they store redirect
 information. This means if a user agent where to abuse a uniauth application
