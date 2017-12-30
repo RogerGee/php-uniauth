@@ -442,6 +442,9 @@ PHP_FUNCTION(uniauth)
             uniauth_storage_delete(stor);
             return;
         }
+
+        /* Commit redirect URI changes back to server. */
+        uniauth_connect_commit(stor);
     }
     else {
         /* Create a new entry. The expiration time and lifetime will be 0. This
