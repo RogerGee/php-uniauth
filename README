@@ -32,17 +32,16 @@ The uniauth records are keyed by a session ID. This ID may be provided by the
 userspace script. If the userspace script does not provide a session key ID, the
 PHP session ID will be used instead (this means you must have already called
 session_start()). The extension does not actually manipulate the PHP session
-data itself. Instead it uses the session configuration (ID and expiration) to
-track its own uniauth records. This frees PHP userspace from having to track
-this information in its session.
+data itself. Instead it uses the configured session ID to track its own uniauth
+records. This frees PHP userspace from having to track this information in its
+session.
 
-If a full-blown session is not required, then a cookie can be used instead. The
-cookie's expiration will align with the uniauth storage session expiration. To
-avoid boilerplate associated with creating cookies and generating session IDs,
-the uniauth_cookie() function is provided. This function generates a cookie
-session, overriding the default behavior of using the PHP session when using the
-other extension functions. It also sets the cookie so it's transmitted to the
-user agent.
+If a PHP session is not required, then a cookie can be used instead. To avoid
+boilerplate associated with creating cookies and generating session IDs, the
+uniauth_cookie() function is provided. This function generates a cookie session,
+overriding the default behavior of using the PHP session when using the other
+extension functions. It also sets the cookie so it's transmitted to the user
+agent.
 
 There are two roles in the flow taken by applications:
 
@@ -51,17 +50,18 @@ There are two roles in the flow taken by applications:
 
 The registrar endpoint provides a means to collect user credentials and
 authenticate users. It registers the collected user ID and name (along with a
-display name) to a uniauth session ID. Internally, this uniauth session is
-shared among all sessions authenticating to the registrar endpoint in question.
+display name) to a uniauth session keyed by ID. Internally, this uniauth session
+is shared among all applications that use the registrar endpoint for
+authentication.
 
 The applicant endpoint queries authentication status and, if none is found,
 redirects to the registrar endpoint for authentication. Upon the user
 successfully providing credentials, the registrar will transfer authentication
 information from its session into the applicant session. Internally this process
 consists of effectively making the applicant session point to the existing
-registrar session. The registrar then redirects the user-agent back to the
-applicant site, upon which event the applicant queries authentication status and
-finds that it exists.
+registrar session on the backend. The registrar then redirects the user-agent
+back to the applicant site, upon which event the applicant queries
+authentication status and finds that it exists.
 
 --------------------------------------------------------------------------------
 PHP Userspace Functions Overview
@@ -93,7 +93,7 @@ When calling a registrar endpoint, one of two things can happen.
     uniauth_cookie()) or use the PHP session to track this uniauth session.
 
     Now the registrar can present a login form or use HTTP basic/digest auth to
-    collect and verify user credentials. Upon successful authentication, the
+    collect user credentials. When the credentials have been verified, the
     uniauth_register() function can be called with the correct information. This
     updates the registrar uniauth session with the provided information.
 
@@ -184,9 +184,10 @@ PHP Userspace Functions Detail
         authenticated. False is returned if the specified session does not exist
         or exists but is not authenticated.
 
-        NOTE: This function is largely obsolete due to changes to the uniauth()
-        function. Prefer calling uniauth(null) over using uniauth_check() when
-        needing to conditionally obtain a session's login array.
+        NOTE: This function is largely obsolete in applicant implementations due
+        to changes to the uniauth() function. Prefer calling uniauth(null) over
+        using uniauth_check() when needing to conditionally obtain a session's
+        login array.
 
             GOOD: $login = uniauth(null);
 

@@ -49,7 +49,7 @@ zend_module_entry uniauth_module_entry = {
 #if ZEND_MODULE_API_NO >= 20010901
     STANDARD_MODULE_HEADER,
 #endif
-    "uniauth",
+    PHP_UNIAUTH_EXTNAME,
     php_uniauth_functions,
     PHP_MINIT(uniauth),
     PHP_MSHUTDOWN(uniauth),
@@ -405,7 +405,7 @@ PHP_FUNCTION(uniauth)
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s!s",&url,&urllen,
             &sessid,&sesslen) == FAILURE)
     {
-        RETURN_FALSE;
+        return;
     }
 
     if (sessid == NULL) {
