@@ -1,10 +1,15 @@
 php-uniauth - v1.1.0
 --------------------------------------------------------------------------------
-This project provides a PHP extension and Linux daemon for performing universal
-authentication among different sites running on the same host (including
-different domains that resolve to the same physical host). The implementation
-consists of an extension that provides PHP userspace an interface for connecting
-with the uniauth daemon (also provided in this repository).
+This project provides a PHP extension for performing universal authentication
+among different sites running on the same host (including different domains that
+resolve to the same physical host). The implementation consists of an extension
+that provides PHP userspace an interface for connecting with the uniauth server.
+
+Uniauth server implementations:
+
+    *NOTE* The following implementation is used for this extension.
+
+    Linux: https://git.rserver.us/network/uniauthd.git
 
 Primary author:
 
@@ -13,35 +18,33 @@ Primary author:
 --------------------------------------------------------------------------------
 The Uniauth Flow
 
-Uniauth is a redirect flow for implementing single sign-on for sites running on
-the same host. Unlike other single sign-on flows it does not transmit
-user/redirect information in the Web requests (e.g. a token or user
+Uniauth is a redirect-based signin flow that implements authentication for web
+applications running on the same host. Unlike other authentication flows it does
+not transmit user/redirect information in the web requests (e.g. a token or user
 credentials). Instead it transmits a session ID to identify pending
 authentication requests. Login status information (i.e. a user ID and name) and
-redirect information are transmitted locally on the server over a domain socket
-connection with the uniauth daemon.
+redirect information are transmitted locally to the uniauth server.
 
-The daemon maintains a simple database of uniauth records. These records hold
-user, session and redirect information used in the flow and for maintaining the
-record. This includes an expiration value which identifies when the record is to
-be cleaned up. Internally records act as pointers to uniauth record
-structures. When a redirect flow is completed across two different sessions, the
-sessions are made to point to the same uniauth record in the daemon backend.
+The server implementation maintains a database of uniauth records that hold
+information about the user session. Records are keyed by a session key
+(sometimes called session ID in this document). This key may be provided by the
+userspace script. If the userspace script does not provide a session key, the
+PHP session ID will be used as the key instead. (This means you must have
+already called session_start() in your program).
 
-The uniauth records are keyed by a session ID. This ID may be provided by the
-userspace script. If the userspace script does not provide a session key ID, the
-PHP session ID will be used instead (this means you must have already called
-session_start()). The extension does not actually manipulate the PHP session
-data itself. Instead it uses the configured session ID to track its own uniauth
-records. This frees PHP userspace from having to track this information in its
-session.
+    *NOTE* The extension does not actually manipulate the PHP session data
+    itself if it uses the session ID. Instead it uses the configured session ID
+    to key the uniauth records it creates with the server. This frees PHP
+    userspace from having to track this information in its session. You can
+    however still use the PHP session backend to store additional session
+    values.
 
 If a PHP session is not required, then a cookie can be used instead. To avoid
-boilerplate associated with creating cookies and generating session IDs, the
-uniauth_cookie() function is provided. This function generates a cookie session,
-overriding the default behavior of using the PHP session when using the other
-extension functions. It also sets the cookie so it's transmitted to the user
-agent.
+boilerplate associated with creating cookies and generating uniauth keys, the
+uniauth_cookie() function is provided. This function generates a random cookie
+session, overriding the default behavior of using the PHP session when using the
+other extension functions. It also sets the cookie so it's transmitted to the
+user agent.
 
 There are two roles in the flow taken by applications:
 
@@ -57,10 +60,10 @@ authentication.
 The applicant endpoint queries authentication status and, if none is found,
 redirects to the registrar endpoint for authentication. Upon the user
 successfully providing credentials, the registrar will transfer authentication
-information from its session into the applicant session. Internally this process
-consists of effectively making the applicant session point to the existing
-registrar session on the backend. The registrar then redirects the user-agent
-back to the applicant site, upon which event the applicant queries
+information from its session into the applicant session. Internally, this
+process consists of effectively making the applicant session point to the
+existing registrar session on the backend. The registrar then redirects the
+user-agent back to the applicant site, upon which event the applicant queries
 authentication status and finds that it exists.
 
 --------------------------------------------------------------------------------
@@ -302,21 +305,3 @@ PHP Userspace Functions Detail
 
         NOTE: using uniauth cookies will overwrite any existing cookies! You
         should always make uniauth calls before any other calls to set cookies!
-
---------------------------------------------------------------------------------
-Limitations
-
-A unique registrar session can only handle one pending applicant at a time. If
-another applicant registers before the auth flow has completed, it will take
-precedence, causing the application to redirect to the latest applicant's
-original endpoint.
-
-Memory for records are allocated preemptively since they store redirect
-information. This means if a user agent where to abuse a uniauth application
-endpoint (i.e. calling it repeatedly without reusing session cookies) then
-memory usage could spike within the uniauth daemon, possibly exhausting memory
-and crashing servers. This extension was designed for intranet applications
-where abuse is limited and not expected. Developers should be aware of this
-limitation and provide means of countermanding (e.g. by tracking internet
-addresses and limiting session allocation). Future versions of this project may
-provide safeguards for this built into the uniauth daemon.

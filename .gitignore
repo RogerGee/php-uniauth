@@ -24,9 +24,8 @@ config.status
 include
 libtool
 modules
+*~
+.#*
 *.lo
 .libs/
 *.la
-*.o
-uniauthd
-uniauthd-debug
