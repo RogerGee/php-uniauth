@@ -397,7 +397,6 @@ PHP_FUNCTION(uniauth)
     sapi_header_line ctr = {0};
     char* encoded;
     int newlen = 0;
-    zval* zv;
 
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
@@ -535,7 +534,6 @@ PHP_FUNCTION(uniauth_register)
     int sesslen = 0;
     long lifetime = 0;
     time_t expires = 0;
-    zval* zv;
 
     /* Grab id parameter from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"lss|s!l",&id,&name,&namelen,
@@ -631,7 +629,6 @@ PHP_FUNCTION(uniauth_transfer)
     char* foreignSession;
     size_t foreignSessionlen;
     sapi_header_line ctr = {0};
-    zval* zv;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
         return;
@@ -725,7 +722,6 @@ PHP_FUNCTION(uniauth_check)
     char* sessid = NULL;
     int sesslen = 0;
     int result = 0;
-    zval* zv;
 
     /* Grab parameters from userspace. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
@@ -832,7 +828,6 @@ PHP_FUNCTION(uniauth_purge)
     char* sessid = NULL;
     int sesslen = 0;
     int result = 0;
-    zval* zv;
 
     /* Grab session id from user space. */
     if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s",&sessid,&sesslen) == FAILURE) {
@@ -879,7 +874,7 @@ PHP_FUNCTION(uniauth_cookie)
      */
     sessid = GET_GLOBAL("_COOKIE","uniauth");
     if (sessid == NULL) {
-        int i, j;
+        int i;
         int outlen;
         unsigned char* outbuf;
         unsigned char buf[UNIAUTH_COOKIE_IDLEN / 4 * 3];

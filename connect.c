@@ -486,7 +486,6 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
      char buffer[UNIAUTH_MAX_MESSAGE];
      size_t iter = 1;
      size_t sz = 0;
-     const char* e;
 
      /* Prepare the commit message buffer to send to the uniauth daemon. */
      buffer[0] = UNIAUTH_PROTO_COMMIT;
@@ -529,7 +528,6 @@ int uniauth_connect_create(struct uniauth_storage* stor)
     char buffer[UNIAUTH_MAX_MESSAGE];
     size_t iter = 1;
     size_t sz = 0;
-    const char* e;
 
     /* Prepare the create message buffer to send to the uniauth daemon. */
     buffer[0] = UNIAUTH_PROTO_CREATE;
@@ -572,7 +570,6 @@ int uniauth_connect_transfer(const char* src,const char* dst)
     char buffer[UNIAUTH_MAX_MESSAGE];
     size_t iter = 1;
     size_t sz = 0;
-    const char* e;
 
     /* Prepare the transfer message buffer to send to the uniauth daemon. */
     buffer[0] = UNIAUTH_PROTO_TRANSF;
