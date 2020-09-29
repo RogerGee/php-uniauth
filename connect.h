@@ -3,7 +3,7 @@
  *
  * This file is a part of php-uniauth.
  *
- * Copyright (C) 2016-2017 Roger P. Gee
+ * Copyright (C) Roger P. Gee
  *
  * The functionality provided by this module includes the connection API used by
  * the PHP extension to fetch/commit uniauth records. Since these functions are
@@ -13,7 +13,7 @@
 
 #ifndef UNIAUTH_CONNECT_H
 #define UNIAUTH_CONNECT_H
-#include "daemon/defs.h"
+#include "protocol.h"
 
 /* Functions to manipulate a uniauth record in the PHP extension */
 void uniauth_storage_delete(struct uniauth_storage* stor);

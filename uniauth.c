@@ -3,7 +3,7 @@
  *
  * This file is a part of php-uniauth.
  *
- * Copyright (C) 2016-2017 Roger P. Gee
+ * Copyright (C) Roger P. Gee
  */
 
 #include "uniauth.h"
