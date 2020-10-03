@@ -113,71 +113,74 @@ PHP_RSHUTDOWN_FUNCTION(uniauth)
  * variables.
  */
 
+static zend_bool check_global(const char* gbl,int gbllen)
+{
+    zval* entry;
+
+    /* Make sure superglobal is auto-loaded already. */
+    if (!zend_hash_str_exists(&EG(symbol_table),gbl,gbllen)) {
+        entry = zend_hash_str_find(CG(auto_globals),gbl,gbllen);
+        if (entry == NULL) {
+            return FAILURE;
+        }
+
+        zend_auto_global* ag = Z_PTR_P(entry);
+        ag->armed = ag->auto_global_callback(ag->name);
+    }
+
+    return SUCCESS;
+}
+
 static zval* get_global(const char* gbl,int gbllen,const char* key,int keylen)
 {
-    zend_auto_global* auto_global;
+    zval* entry;
     HashTable* bucket;
-    zval** arr;
-    zval** val;
 
-    /* Make sure superglobal is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),gbl,gbllen)) {
-        if (zend_hash_find(CG(auto_globals),gbl,gbllen,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            return NULL;
-        }
+    if (!check_global(gbl,gbllen)) {
+        return NULL;
     }
 
     /* Lookup element and return as string. */
-    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+    entry = zend_hash_str_find(&EG(symbol_table),gbl,gbllen);
+    if (entry == NULL) {
         return NULL;
     }
-    bucket = Z_ARRVAL_PP(arr);
-    if (zend_hash_find(bucket,key,keylen,(void**)&val) != FAILURE) {
-        return *val;
-    }
+    bucket = Z_ARRVAL_P(entry);
+    entry = zend_hash_str_find(bucket,key,keylen);
 
-    return NULL;
+    return entry;
 }
 
 /* Arguments to this macro should be string literals. */
 #define GET_GLOBAL(g,e)                         \
-    get_global(g,sizeof(g),e,sizeof(e))
+    get_global(g,sizeof(g)-1,e,sizeof(e)-1)
 
 static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval* value)
 {
-    zend_auto_global* auto_global;
+    zval* entry;
     HashTable* bucket;
-    zval** arr;
 
-    /* Make sure superglobal is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),gbl,gbllen)) {
-        if (zend_hash_find(CG(auto_globals),gbl,gbllen,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            return FAILURE;
-        }
+    if (!check_global(gbl,gbllen)) {
+        return FAILURE;
     }
 
     /* Lookup bucket for superglobal. */
-    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+    entry = zend_hash_str_find(&EG(symbol_table),gbl,gbllen);
+    if (entry == NULL) {
         return FAILURE;
     }
-    bucket = Z_ARRVAL_PP(arr);
+    bucket = Z_ARRVAL_P(entry);
 
     /* Update zval in hashtable. */
-    zend_hash_update(bucket,key,keylen,&value,sizeof(zval*),NULL);
+    if (zend_hash_str_update(bucket,key,keylen,value) == NULL) {
+        return FAILURE;
+    }
 
     return SUCCESS;
 }
 
 #define SET_GLOBAL(g,k,v)                       \
-    set_global(g,sizeof(g),k,sizeof(k),v)
+    set_global(g,sizeof(g)-1,k,sizeof(k)-1,v)
 
 /* Define a helper function for compiling the redirect uri to the current
  * request.
@@ -185,11 +188,9 @@ static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
+    zval* entry;
     char buf[4096];
-    zend_auto_global* auto_global;
     HashTable* server;
-    zval** arr;
-    zval** val;
     int https = 0;
     char* host;
     char* port = NULL;
@@ -197,15 +198,9 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     size_t len;
 
     /* Make sure $_SERVER is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),"_SERVER",8)) {
-        if (zend_hash_find(CG(auto_globals),"_SERVER",8,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            zend_throw_exception(NULL,"could not activate _SERVER",0 TSRMLS_CC);
-            return 0;
-        }
+    if (!check_global("_SERVER",sizeof("_SERVER")-1)) {
+        zend_throw_exception(NULL,"could not activate _SERVER",0 TSRMLS_CC);
+        return 0;
     }
 
     /* Get information about the protocol, host and port number from the _SERVER
@@ -213,32 +208,38 @@ static int set_redirect_uri(struct uniauth_storage* stor)
      * scheme, host and port. I know of no better way to do this unfortunately
      * with the PHP/ZEND API. The sapi globals just don't have what I need.
      */
-    if (zend_hash_find(&EG(symbol_table),"_SERVER",8,(void**)&arr) == FAILURE) {
+
+    entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
+    if (entry == NULL) {
         zend_throw_exception(NULL,"no _SERVER superglobal",0 TSRMLS_CC);
         return 0;
     }
-    server = Z_ARRVAL_PP(arr);
-    if (zend_hash_find(server,"HTTPS",6,(void**)&val) != FAILURE) {
-        if (Z_TYPE_PP(val) != IS_STRING || strcmp(Z_STRVAL_PP(val),"off") != 0) {
+    server = Z_ARRVAL_P(entry);
+
+    entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
+    if (entry != NULL) {
+        if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
             https = 1;
         }
     }
-    if (zend_hash_find(server,"HTTP_HOST",10,(void**)&val) != FAILURE
-        && Z_TYPE_PP(val) == IS_STRING)
-    {
-        host = Z_STRVAL_PP(val);
+
+    entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        host = Z_STRVAL_P(entry);
     }
     else {
         zend_throw_exception(NULL,"no HTTP_HOST within _SERVER found",0 TSRMLS_CC);
+        return 0;
     }
-    if (zend_hash_find(server,"SERVER_PORT",12,(void**)&val) != FAILURE) {
+
+    entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
+    if (entry != NULL) {
         /* Only set port if it is not well-known. If the host name contains a
          * ':' then we assume the port was encoded in the Host header. User
          * agents should do this but we still need make sure we get the port
          * number if not.
          */
         int i = 0;
-        char* p;
 
         while (host[i] != 0) {
             if (host[i] == ':') {
@@ -248,22 +249,22 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         }
 
         if (host[i] == 0) {
-            convert_to_string(*val);
-            p = Z_STRVAL_PP(val);
-            if ((!https && strcmp(p,"80") != 0) || (https && strcmp(p,"443") != 0)) {
-                port = p;
+            zend_string* str = zval_get_string(entry);
+            if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
+                port = estrdup(str->val);
             }
+            zend_string_release(str);
         }
     }
     else {
         zend_throw_exception(NULL,"no SERVER_PORT within _SERVER found",0 TSRMLS_CC);
+        return 0;
     }
 
     /* Lookup request URI. This actually can be found in the sapi globals. */
-    if (zend_hash_find(server,"REQUEST_URI",12,(void**)&val) != FAILURE
-        && Z_TYPE_PP(val) == IS_STRING)
-    {
-        uri = Z_STRVAL_PP(val);
+    entry = zend_hash_str_find(server,"REQUEST_URI",sizeof("REQUEST_URI")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        uri = Z_STRVAL_P(entry);
     }
     else {
         zend_throw_exception(NULL,"no REQUEST_URI within _SERVER found",0 TSRMLS_CC);
@@ -282,6 +283,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     len = strlen(buf);
     stor->redirect = estrndup(buf,len);
     stor->redirectSz = len;
+    efree(port);
 
     return 1;
 }
