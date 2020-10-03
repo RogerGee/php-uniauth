@@ -292,6 +292,9 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
 static void set_uniauth_cookie(char* id,int id_len,time_t expires)
 {
+    zend_string* name;
+    zend_string* value;
+    zend_string* path;
     sapi_header_line line = {0};
 
     /* Delete any existing Set-Cookie headers so the extension can overwrite any
@@ -301,9 +304,20 @@ static void set_uniauth_cookie(char* id,int id_len,time_t expires)
     line.line_len = sizeof("Set-Cookie") - 1;
     sapi_header_op(SAPI_HEADER_DELETE,&line);
 
-    /* Set cookie header. */
-    php_setcookie("uniauth", sizeof("uniauth") - 1, id, id_len, expires, "/",
-        sizeof("/") - 1, NULL, 0, 0, 1, 0 TSRMLS_CC);
+    name = zend_string_init("uniauth",sizeof("uniauth")-1,0);
+    value = zend_string_init(id,id_len,0);
+    path = zend_string_init("/",sizeof("/")-1,0);
+
+    /* Set cookie header via 'standard' extension. */
+#if PHP_API_VERSION > 20170718
+    php_setcookie(name,value,expires,path,NULL,0,0,NULL,1 TSRMLS_CC);
+#else
+    php_setcookie(name,value,expires,path,NULL,0,1,0 TSRMLS_CC);
+#endif
+
+    zend_string_release(name);
+    zend_string_release(value);
+    zend_string_release(path);
 }
 
 /* Define a helper function for touching uniauth storage records. */
@@ -339,7 +353,7 @@ static inline void uniauth_touch_record(struct uniauth_storage* stor)
 
 /* Define a helper function for looking up the default session id. */
 
-static char* get_default_sessid(int* out_len)
+static char* get_default_sessid(size_t* out_len)
 {
     /* Lookup session id from module globals or uniauth cookie. This requires
      * that the PHP session exist (via a call to session_start()) OR the uniauth
@@ -349,7 +363,7 @@ static char* get_default_sessid(int* out_len)
 
     zval* zv;
     char* sessid;
-    int sesslen;
+    size_t sesslen;
 
     if (UNIAUTH_G(useCookie)) {
         zv = GET_GLOBAL("_COOKIE","uniauth");
@@ -364,15 +378,15 @@ static char* get_default_sessid(int* out_len)
         sesslen = Z_STRLEN_P(zv);
     }
     else {
-        sessid = PS(id);
-        if (sessid == NULL) {
+        if (PS(id) == NULL && PS(id)->len == 0) {
             zend_throw_exception(
                 NULL,
                 "no PHP session is available",
                 0 TSRMLS_CC);
             return NULL;
         }
-        sesslen = strlen(sessid);
+        sessid = PS(id)->val;
+        sesslen = PS(id)->len;
     }
 
     *out_len = sesslen;
@@ -389,12 +403,12 @@ PHP_FUNCTION(uniauth)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* url = NULL;
-    int urllen = 0;
+    size_t urllen = 0;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     sapi_header_line ctr = {0};
-    char* encoded;
-    int newlen = 0;
+    size_t bufsz;
+    zend_string* encoded;
 
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
@@ -427,13 +441,13 @@ PHP_FUNCTION(uniauth)
             array_init(return_value);
             add_assoc_long(return_value,"id",stor->id);
             if (stor->username != NULL) {
-                add_assoc_string(return_value,"user",stor->username,1);
+                add_assoc_string(return_value,"user",stor->username);
             }
             else {
                 add_assoc_null(return_value,"user");
             }
             if (stor->displayName != NULL) {
-                add_assoc_string(return_value,"display",stor->displayName,1);
+                add_assoc_string(return_value,"display",stor->displayName);
             }
             else {
                 add_assoc_null(return_value,"display");
@@ -491,23 +505,26 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_create(stor);
     }
 
-    /* URL-encode the key so we can safely pass it in a query string. */
-    encoded = php_url_encode(stor->key,stor->keySz,&newlen);
+    /* URL-encode (via 'standard' extension) the key so we can safely pass it in
+     * a query string.
+     */
+    encoded = php_url_encode(stor->key,stor->keySz);
 
     /* Allocate a buffer to hold the redirect header line. 'newlen' includes the
      * size needed for the trailing null character.
      */
-    newlen += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
-    ctr.line = emalloc(newlen);
+    bufsz = encoded->len;
+    bufsz += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
+    ctr.line = emalloc(bufsz);
 
     /* Prepare the redirect header line. This will include a query parameter
      * that contains the uniauth session key.
      */
-    snprintf(ctr.line,newlen,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded);
-    ctr.line_len = newlen - 1;
+    snprintf(ctr.line,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded);
+    ctr.line_len = bufsz - 1;
     sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
     efree(ctr.line);
-    efree(encoded);
+    zend_string_release(encoded);
 
     /* Free memory allocated for uniauth record. */
     uniauth_storage_delete(stor);
@@ -529,7 +546,7 @@ PHP_FUNCTION(uniauth_register)
     char* displayname;
     int displaynamelen;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     long lifetime = 0;
     time_t expires = 0;
 
@@ -623,7 +640,7 @@ PHP_FUNCTION(uniauth_transfer)
     struct uniauth_storage* src;
     struct uniauth_storage* dst;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     char* foreignSession;
     size_t foreignSessionlen;
     sapi_header_line ctr = {0};
@@ -718,7 +735,7 @@ PHP_FUNCTION(uniauth_check)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     int result = 0;
 
     /* Grab parameters from userspace. */
@@ -755,7 +772,7 @@ PHP_FUNCTION(uniauth_apply)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     zval* zv;
     char* applicantID;
     int create;
@@ -824,7 +841,7 @@ PHP_FUNCTION(uniauth_purge)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     int result = 0;
 
     /* Grab session id from user space. */
@@ -863,18 +880,19 @@ PHP_FUNCTION(uniauth_purge)
    to be used instead of the PHP session */
 PHP_FUNCTION(uniauth_cookie)
 {
-    zval* sessid;
+    zval sessid;
+    zval* result;
     int touch = 1;
     time_t expires = 0;
 
     /* Get the session id from the cookie. If none was found then generate a new
      * session id.
      */
-    sessid = GET_GLOBAL("_COOKIE","uniauth");
-    if (sessid == NULL) {
+    result = GET_GLOBAL("_COOKIE","uniauth");
+    if (result == NULL) {
         int i;
-        int outlen;
-        unsigned char* outbuf;
+        size_t len;
+        zend_string* encoded;
         unsigned char buf[UNIAUTH_COOKIE_IDLEN / 4 * 3];
         char output[UNIAUTH_COOKIE_IDLEN+1];
 
@@ -888,25 +906,26 @@ PHP_FUNCTION(uniauth_cookie)
         }
 
         memset(output,'0',sizeof(output));
-        outbuf = php_base64_encode(buf,sizeof(buf),&outlen);
-        if (outbuf == NULL) {
+        encoded = php_base64_encode(buf,sizeof(buf));
+        if (encoded == NULL) {
             RETURN_FALSE;
         }
-        outlen = (outlen > UNIAUTH_COOKIE_IDLEN ? UNIAUTH_COOKIE_IDLEN : outlen);
-        memcpy(output,outbuf,outlen);
-        efree(outbuf);
+        len = (encoded->len > UNIAUTH_COOKIE_IDLEN ? UNIAUTH_COOKIE_IDLEN : encoded->len);
+        memcpy(output,encoded->val,len);
+        zend_string_release(encoded);
 
         output[UNIAUTH_COOKIE_IDLEN] = 0;
-        ALLOC_INIT_ZVAL(sessid);
-        ZVAL_STRING(sessid,output,1);
+        ZVAL_STRING(&sessid,output);
 
         /* Go ahead and set the cookie in the superglobal so it is available for
          * userland. Subsequent calls to the uniauth extension could require the
          * global to be set.
          */
-        SET_GLOBAL("_COOKIE","uniauth",sessid);
+        SET_GLOBAL("_COOKIE","uniauth",&sessid);
     }
     else {
+        ZVAL_COPY(&sessid,result);
+
         /* If a cookie was already sent, then lookup the uniauth record to
          * determine the expires value and if we need to touch the cookie.
          */
@@ -914,7 +933,7 @@ PHP_FUNCTION(uniauth_cookie)
         struct uniauth_storage local;
         struct uniauth_storage* stor;
 
-        stor = uniauth_connect_lookup(Z_STRVAL_P(sessid),Z_STRLEN_P(sessid),&local);
+        stor = uniauth_connect_lookup(Z_STRVAL(sessid),Z_STRLEN(sessid),&local);
         if (stor != NULL) {
             if (stor->expire > 0) {
                 /* We touch the cookie if the redirect was set to transfer
@@ -951,12 +970,9 @@ PHP_FUNCTION(uniauth_cookie)
 
     /* Create/touch the cookie. */
     if (touch) {
-        set_uniauth_cookie(Z_STRVAL_P(sessid),Z_STRLEN_P(sessid),expires);
+        set_uniauth_cookie(Z_STRVAL(sessid),Z_STRLEN(sessid),expires);
     }
 
-    /* Return a copy of the zval. We need to preserve the sessid zval since it
-     * lives in the _COOKIE hashtable.
-     */
-    RETVAL_ZVAL(sessid,1,0);
+    RETVAL_ZVAL(&sessid,0,0);
 }
 /* }}} */
