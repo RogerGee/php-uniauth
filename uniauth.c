@@ -46,9 +46,7 @@ static zend_function_entry php_uniauth_functions[] = {
 
 /* Module entries */
 zend_module_entry uniauth_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
     STANDARD_MODULE_HEADER,
-#endif
     PHP_UNIAUTH_EXTNAME,
     php_uniauth_functions,
     PHP_MINIT(uniauth),
@@ -56,9 +54,7 @@ zend_module_entry uniauth_module_entry = {
     PHP_RINIT(uniauth),
     PHP_RSHUTDOWN(uniauth),
     PHP_MINFO(uniauth),
-#if ZEND_MODULE_API_NO >= 20010901
     PHP_UNIAUTH_EXTVER,
-#endif
     STANDARD_MODULE_PROPERTIES
 };
 
