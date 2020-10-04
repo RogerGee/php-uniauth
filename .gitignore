@@ -8,6 +8,7 @@ config.h.in
 config.sub
 configure
 configure.in
+configure.ac
 install-sh
 ltmain.sh
 missing
