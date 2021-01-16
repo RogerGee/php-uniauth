@@ -46,9 +46,7 @@ static zend_function_entry php_uniauth_functions[] = {
 
 /* Module entries */
 zend_module_entry uniauth_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
     STANDARD_MODULE_HEADER,
-#endif
     PHP_UNIAUTH_EXTNAME,
     php_uniauth_functions,
     PHP_MINIT(uniauth),
@@ -56,9 +54,7 @@ zend_module_entry uniauth_module_entry = {
     PHP_RINIT(uniauth),
     PHP_RSHUTDOWN(uniauth),
     PHP_MINFO(uniauth),
-#if ZEND_MODULE_API_NO >= 20010901
     PHP_UNIAUTH_EXTVER,
-#endif
     STANDARD_MODULE_PROPERTIES
 };
 
@@ -117,71 +113,75 @@ PHP_RSHUTDOWN_FUNCTION(uniauth)
  * variables.
  */
 
+static zend_bool check_global(const char* gbl,int gbllen)
+{
+    zval* entry;
+
+    /* Make sure superglobal is auto-loaded already. */
+    if (!zend_hash_str_exists(&EG(symbol_table),gbl,gbllen)) {
+        entry = zend_hash_str_find(CG(auto_globals),gbl,gbllen);
+
+        if (entry == NULL) {
+            return FAILURE;
+        }
+
+        zend_auto_global* ag = Z_PTR_P(entry);
+        ag->armed = ag->auto_global_callback(ag->name);
+    }
+
+    return SUCCESS;
+}
+
 static zval* get_global(const char* gbl,int gbllen,const char* key,int keylen)
 {
-    zend_auto_global* auto_global;
+    zval* entry;
     HashTable* bucket;
-    zval** arr;
-    zval** val;
 
-    /* Make sure superglobal is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),gbl,gbllen)) {
-        if (zend_hash_find(CG(auto_globals),gbl,gbllen,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            return NULL;
-        }
+    if (check_global(gbl,gbllen) != SUCCESS) {
+        return NULL;
     }
 
     /* Lookup element and return as string. */
-    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+    entry = zend_hash_str_find(&EG(symbol_table),gbl,gbllen);
+    if (entry == NULL) {
         return NULL;
     }
-    bucket = Z_ARRVAL_PP(arr);
-    if (zend_hash_find(bucket,key,keylen,(void**)&val) != FAILURE) {
-        return *val;
-    }
+    bucket = Z_ARRVAL_P(entry);
+    entry = zend_hash_str_find(bucket,key,keylen);
 
-    return NULL;
+    return entry;
 }
 
 /* Arguments to this macro should be string literals. */
 #define GET_GLOBAL(g,e)                         \
-    get_global(g,sizeof(g),e,sizeof(e))
+    get_global(g,sizeof(g)-1,e,sizeof(e)-1)
 
 static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval* value)
 {
-    zend_auto_global* auto_global;
+    zval* entry;
     HashTable* bucket;
-    zval** arr;
 
-    /* Make sure superglobal is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),gbl,gbllen)) {
-        if (zend_hash_find(CG(auto_globals),gbl,gbllen,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            return FAILURE;
-        }
+    if (check_global(gbl,gbllen) != SUCCESS) {
+        return FAILURE;
     }
 
     /* Lookup bucket for superglobal. */
-    if (zend_hash_find(&EG(symbol_table),gbl,gbllen,(void**)&arr) == FAILURE) {
+    entry = zend_hash_str_find(&EG(symbol_table),gbl,gbllen);
+    if (entry == NULL) {
         return FAILURE;
     }
-    bucket = Z_ARRVAL_PP(arr);
+    bucket = Z_ARRVAL_P(entry);
 
     /* Update zval in hashtable. */
-    zend_hash_update(bucket,key,keylen,&value,sizeof(zval*),NULL);
+    if (zend_hash_str_update(bucket,key,keylen,value) == NULL) {
+        return FAILURE;
+    }
 
     return SUCCESS;
 }
 
 #define SET_GLOBAL(g,k,v)                       \
-    set_global(g,sizeof(g),k,sizeof(k),v)
+    set_global(g,sizeof(g)-1,k,sizeof(k)-1,v)
 
 /* Define a helper function for compiling the redirect uri to the current
  * request.
@@ -189,11 +189,9 @@ static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
+    zval* entry;
     char buf[4096];
-    zend_auto_global* auto_global;
     HashTable* server;
-    zval** arr;
-    zval** val;
     int https = 0;
     char* host;
     char* port = NULL;
@@ -201,15 +199,9 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     size_t len;
 
     /* Make sure $_SERVER is auto loaded already. */
-    if (!zend_hash_exists(&EG(symbol_table),"_SERVER",8)) {
-        if (zend_hash_find(CG(auto_globals),"_SERVER",8,(void**)&auto_global) != FAILURE) {
-            auto_global->armed = auto_global->auto_global_callback(auto_global->name,
-                auto_global->name_len TSRMLS_CC);
-        }
-        else {
-            zend_throw_exception(NULL,"could not activate _SERVER",0 TSRMLS_CC);
-            return 0;
-        }
+    if (check_global("_SERVER",sizeof("_SERVER")-1) != SUCCESS) {
+        zend_throw_exception(NULL,"Failed to activate $_SERVER",0);
+        return FAILURE;
     }
 
     /* Get information about the protocol, host and port number from the _SERVER
@@ -217,32 +209,38 @@ static int set_redirect_uri(struct uniauth_storage* stor)
      * scheme, host and port. I know of no better way to do this unfortunately
      * with the PHP/ZEND API. The sapi globals just don't have what I need.
      */
-    if (zend_hash_find(&EG(symbol_table),"_SERVER",8,(void**)&arr) == FAILURE) {
-        zend_throw_exception(NULL,"no _SERVER superglobal",0 TSRMLS_CC);
-        return 0;
+
+    entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
+    if (entry == NULL) {
+        zend_throw_exception(NULL,"Failed to look up $_SERVER",0);
+        return FAILURE;
     }
-    server = Z_ARRVAL_PP(arr);
-    if (zend_hash_find(server,"HTTPS",6,(void**)&val) != FAILURE) {
-        if (Z_TYPE_PP(val) != IS_STRING || strcmp(Z_STRVAL_PP(val),"off") != 0) {
+    server = Z_ARRVAL_P(entry);
+
+    entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
+    if (entry != NULL) {
+        if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
             https = 1;
         }
     }
-    if (zend_hash_find(server,"HTTP_HOST",10,(void**)&val) != FAILURE
-        && Z_TYPE_PP(val) == IS_STRING)
-    {
-        host = Z_STRVAL_PP(val);
+
+    entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        host = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"no HTTP_HOST within _SERVER found",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'HTTP_HOST' variable",0);
+        return FAILURE;
     }
-    if (zend_hash_find(server,"SERVER_PORT",12,(void**)&val) != FAILURE) {
+
+    entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
+    if (entry != NULL) {
         /* Only set port if it is not well-known. If the host name contains a
          * ':' then we assume the port was encoded in the Host header. User
          * agents should do this but we still need make sure we get the port
          * number if not.
          */
         int i = 0;
-        char* p;
 
         while (host[i] != 0) {
             if (host[i] == ':') {
@@ -252,26 +250,26 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         }
 
         if (host[i] == 0) {
-            convert_to_string(*val);
-            p = Z_STRVAL_PP(val);
-            if ((!https && strcmp(p,"80") != 0) || (https && strcmp(p,"443") != 0)) {
-                port = p;
+            zend_string* str = zval_get_string(entry);
+            if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
+                port = estrdup(str->val);
             }
+            zend_string_release(str);
         }
     }
     else {
-        zend_throw_exception(NULL,"no SERVER_PORT within _SERVER found",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
+        return FAILURE;
     }
 
     /* Lookup request URI. This actually can be found in the sapi globals. */
-    if (zend_hash_find(server,"REQUEST_URI",12,(void**)&val) != FAILURE
-        && Z_TYPE_PP(val) == IS_STRING)
-    {
-        uri = Z_STRVAL_PP(val);
+    entry = zend_hash_str_find(server,"REQUEST_URI",sizeof("REQUEST_URI")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        uri = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"no REQUEST_URI within _SERVER found",0 TSRMLS_CC);
-        return 0;
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
+        return FAILURE;
     }
 
     /* Format the URI to a temporary buffer. */
@@ -286,14 +284,18 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     len = strlen(buf);
     stor->redirect = estrndup(buf,len);
     stor->redirectSz = len;
+    efree(port);
 
-    return 1;
+    return SUCCESS;
 }
 
 /* Define a helper function for setting uniauth cookies. */
 
 static void set_uniauth_cookie(char* id,int id_len,time_t expires)
 {
+    zend_string* name;
+    zend_string* value;
+    zend_string* path;
     sapi_header_line line = {0};
 
     /* Delete any existing Set-Cookie headers so the extension can overwrite any
@@ -303,9 +305,20 @@ static void set_uniauth_cookie(char* id,int id_len,time_t expires)
     line.line_len = sizeof("Set-Cookie") - 1;
     sapi_header_op(SAPI_HEADER_DELETE,&line);
 
-    /* Set cookie header. */
-    php_setcookie("uniauth", sizeof("uniauth") - 1, id, id_len, expires, "/",
-        sizeof("/") - 1, NULL, 0, 0, 1, 0 TSRMLS_CC);
+    name = zend_string_init("uniauth",sizeof("uniauth")-1,0);
+    value = zend_string_init(id,id_len,0);
+    path = zend_string_init("/",sizeof("/")-1,0);
+
+    /* Set cookie header via 'standard' extension. */
+#if PHP_API_VERSION > 20170718
+    php_setcookie(name,value,expires,path,NULL,0,0,NULL,1);
+#else
+    php_setcookie(name,value,expires,path,NULL,0,1,0);
+#endif
+
+    zend_string_release(name);
+    zend_string_release(value);
+    zend_string_release(path);
 }
 
 /* Define a helper function for touching uniauth storage records. */
@@ -341,7 +354,7 @@ static inline void uniauth_touch_record(struct uniauth_storage* stor)
 
 /* Define a helper function for looking up the default session id. */
 
-static char* get_default_sessid(int* out_len)
+static char* get_default_sessid(size_t* out_len)
 {
     /* Lookup session id from module globals or uniauth cookie. This requires
      * that the PHP session exist (via a call to session_start()) OR the uniauth
@@ -351,30 +364,30 @@ static char* get_default_sessid(int* out_len)
 
     zval* zv;
     char* sessid;
-    int sesslen;
+    size_t sesslen;
 
     if (UNIAUTH_G(useCookie)) {
         zv = GET_GLOBAL("_COOKIE","uniauth");
         if (zv == NULL) {
             zend_throw_exception(
                 NULL,
-                "no uniauth cookie session available",
-                0 TSRMLS_CC);
+                "Failed to load uniauth identifier from uniauth cookie",
+                0);
             return NULL;
         }
         sessid = Z_STRVAL_P(zv);
         sesslen = Z_STRLEN_P(zv);
     }
     else {
-        sessid = PS(id);
-        if (sessid == NULL) {
+        if (PS(id) == NULL || PS(id)->len == 0) {
             zend_throw_exception(
                 NULL,
-                "no PHP session is available",
-                0 TSRMLS_CC);
+                "Failed to load uniauth identifier from php session",
+                0);
             return NULL;
         }
-        sesslen = strlen(sessid);
+        sessid = PS(id)->val;
+        sesslen = PS(id)->len;
     }
 
     *out_len = sesslen;
@@ -391,12 +404,12 @@ PHP_FUNCTION(uniauth)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* url = NULL;
-    int urllen = 0;
+    size_t urllen = 0;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     sapi_header_line ctr = {0};
-    char* encoded;
-    int newlen = 0;
+    size_t bufsz;
+    zend_string* encoded;
 
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
@@ -411,7 +424,7 @@ PHP_FUNCTION(uniauth)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            RETURN_FALSE;
         }
     }
 
@@ -429,13 +442,13 @@ PHP_FUNCTION(uniauth)
             array_init(return_value);
             add_assoc_long(return_value,"id",stor->id);
             if (stor->username != NULL) {
-                add_assoc_string(return_value,"user",stor->username,1);
+                add_assoc_string(return_value,"user",stor->username);
             }
             else {
                 add_assoc_null(return_value,"user");
             }
             if (stor->displayName != NULL) {
-                add_assoc_string(return_value,"display",stor->displayName,1);
+                add_assoc_string(return_value,"display",stor->displayName);
             }
             else {
                 add_assoc_null(return_value,"display");
@@ -458,7 +471,7 @@ PHP_FUNCTION(uniauth)
         /* If the ID was not set, then we update the redirect URI and continue
          * to redirect the script.
          */
-        if (!set_redirect_uri(stor)) {
+        if (set_redirect_uri(stor) != SUCCESS) {
             uniauth_storage_delete(stor);
             RETURN_FALSE;
         }
@@ -484,7 +497,7 @@ PHP_FUNCTION(uniauth)
         stor->keySz = sesslen;
 
         /* Fill out stor->redirect. */
-        if (!set_redirect_uri(stor)) {
+        if (set_redirect_uri(stor) != SUCCESS) {
             uniauth_storage_delete(stor);
             RETURN_FALSE;
         }
@@ -493,23 +506,26 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_create(stor);
     }
 
-    /* URL-encode the key so we can safely pass it in a query string. */
-    encoded = php_url_encode(stor->key,stor->keySz,&newlen);
+    /* URL-encode (via 'standard' extension) the key so we can safely pass it in
+     * a query string.
+     */
+    encoded = php_url_encode(stor->key,stor->keySz);
 
     /* Allocate a buffer to hold the redirect header line. 'newlen' includes the
      * size needed for the trailing null character.
      */
-    newlen += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
-    ctr.line = emalloc(newlen);
+    bufsz = encoded->len;
+    bufsz += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
+    ctr.line = emalloc(bufsz);
 
     /* Prepare the redirect header line. This will include a query parameter
      * that contains the uniauth session key.
      */
-    snprintf(ctr.line,newlen,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded);
-    ctr.line_len = newlen - 1;
+    snprintf(ctr.line,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded->val);
+    ctr.line_len = bufsz - 1;
     sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
     efree(ctr.line);
-    efree(encoded);
+    zend_string_release(encoded);
 
     /* Free memory allocated for uniauth record. */
     uniauth_storage_delete(stor);
@@ -525,19 +541,25 @@ PHP_FUNCTION(uniauth_register)
 {
     struct uniauth_storage backing;
     struct uniauth_storage* stor;
-    long id;
+    zend_long id;
     char* name;
-    int namelen;
+    size_t namelen;
     char* displayname;
-    int displaynamelen;
+    size_t displaynamelen;
     char* sessid = NULL;
-    int sesslen = 0;
-    long lifetime = 0;
+    size_t sesslen = 0;
+    zend_long lifetime = 0;
     time_t expires = 0;
 
     /* Grab id parameter from userspace. */
-    if (zend_parse_parameters(ZEND_NUM_ARGS(),"lss|s!l",&id,&name,&namelen,
-            &displayname,&displaynamelen,&sessid,&sesslen,&lifetime) == FAILURE)
+    if (zend_parse_parameters(
+            ZEND_NUM_ARGS(),
+            "lss|s!l",
+            &id,
+            &name, &namelen,
+            &displayname, &displaynamelen,
+            &sessid, &sesslen,
+            &lifetime) == FAILURE)
     {
         return;
     }
@@ -564,7 +586,7 @@ PHP_FUNCTION(uniauth_register)
         /* Set storage parameters. We will always override any existing
          * values.
          */
-        stor->id = id;
+        stor->id = (int32_t)id;
         if (stor->username != NULL) {
             efree(stor->username);
         }
@@ -576,7 +598,7 @@ PHP_FUNCTION(uniauth_register)
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
         stor->expire = time(NULL) + LIFETIME(lifetime);
-        stor->lifetime = lifetime;
+        stor->lifetime = (int32_t)lifetime;
         if (lifetime == 0) {
             expires = stor->expire;
         }
@@ -588,13 +610,13 @@ PHP_FUNCTION(uniauth_register)
         memset(stor,0,sizeof(struct uniauth_storage));
         stor->key = estrndup(sessid,sesslen);
         stor->keySz = sesslen;
-        stor->id = id;
+        stor->id = (int32_t)id;
         stor->username = estrdup(name);
         stor->usernameSz = namelen;
         stor->displayName = estrdup(displayname);
         stor->displayNameSz = displaynamelen;
         stor->expire = time(NULL) + LIFETIME(lifetime);
-        stor->lifetime = lifetime;
+        stor->lifetime = (int32_t)lifetime;
         if (lifetime == 0) {
             expires = stor->expire;
         }
@@ -625,7 +647,7 @@ PHP_FUNCTION(uniauth_transfer)
     struct uniauth_storage* src;
     struct uniauth_storage* dst;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     char* foreignSession;
     size_t foreignSessionlen;
     sapi_header_line ctr = {0};
@@ -648,11 +670,11 @@ PHP_FUNCTION(uniauth_transfer)
      */
     src = uniauth_connect_lookup(sessid,sesslen,backing);
     if (src == NULL) {
-        zend_throw_exception(NULL,"source registration does not exist",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Source registration does not exist",0);
         return;
     }
     if (src->tag == NULL) {
-        zend_throw_exception(NULL,"source registration did not apply",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Source registration did not apply",0);
         uniauth_storage_delete(backing);
         return;
     }
@@ -664,7 +686,7 @@ PHP_FUNCTION(uniauth_transfer)
      */
     dst = uniauth_connect_lookup(foreignSession,foreignSessionlen,backing+1);
     if (dst == NULL) {
-        zend_throw_exception(NULL,"destination registration does not exist",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Destination registration does not exist",0);
         uniauth_storage_delete(backing);
         return;
     }
@@ -673,7 +695,7 @@ PHP_FUNCTION(uniauth_transfer)
      * uniauth daemon will do this for us.
      */
     if (uniauth_connect_transfer(sessid,foreignSession) == -1) {
-        zend_throw_exception(NULL,"transfer failed",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"transfer failed",0);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -689,7 +711,7 @@ PHP_FUNCTION(uniauth_transfer)
         efree(ctr.line);
     }
     else {
-        zend_throw_exception(NULL,"no redirect URI exists for the destination registration",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -720,7 +742,7 @@ PHP_FUNCTION(uniauth_check)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     int result = 0;
 
     /* Grab parameters from userspace. */
@@ -757,7 +779,7 @@ PHP_FUNCTION(uniauth_apply)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     zval* zv;
     char* applicantID;
     int create;
@@ -802,7 +824,7 @@ PHP_FUNCTION(uniauth_apply)
         if (!create) {
             uniauth_storage_delete(stor);
         }
-        zend_throw_exception(NULL,"no 'uniauth' query parameter was specified",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"No 'uniauth' query parameter was specified",0);
         return;
     }
     stor->tag = estrdup(applicantID);
@@ -826,7 +848,7 @@ PHP_FUNCTION(uniauth_purge)
     struct uniauth_storage local;
     struct uniauth_storage* stor;
     char* sessid = NULL;
-    int sesslen = 0;
+    size_t sesslen = 0;
     int result = 0;
 
     /* Grab session id from user space. */
@@ -865,50 +887,55 @@ PHP_FUNCTION(uniauth_purge)
    to be used instead of the PHP session */
 PHP_FUNCTION(uniauth_cookie)
 {
-    zval* sessid;
+    zval sessid;
+    zval* result;
     int touch = 1;
     time_t expires = 0;
 
     /* Get the session id from the cookie. If none was found then generate a new
      * session id.
      */
-    sessid = GET_GLOBAL("_COOKIE","uniauth");
-    if (sessid == NULL) {
+    result = GET_GLOBAL("_COOKIE","uniauth");
+    if (result == NULL) {
         int i;
-        int outlen;
-        unsigned char* outbuf;
+        size_t len;
+        zend_string* encoded;
         unsigned char buf[UNIAUTH_COOKIE_IDLEN / 4 * 3];
         char output[UNIAUTH_COOKIE_IDLEN+1];
 
         i = 0;
         while (i < sizeof(buf)) {
             long n;
-            n = php_rand(TSRMLS_C);
+            n = php_rand();
             RAND_RANGE(n,0,0xff,PHP_RAND_MAX);
             buf[i] = (unsigned char)n;
             i += 1;
         }
 
         memset(output,'0',sizeof(output));
-        outbuf = php_base64_encode(buf,sizeof(buf),&outlen);
-        if (outbuf == NULL) {
+        encoded = php_base64_encode(buf,sizeof(buf));
+        if (encoded == NULL) {
             RETURN_FALSE;
         }
-        outlen = (outlen > UNIAUTH_COOKIE_IDLEN ? UNIAUTH_COOKIE_IDLEN : outlen);
-        memcpy(output,outbuf,outlen);
-        efree(outbuf);
+        len = (encoded->len > UNIAUTH_COOKIE_IDLEN ? UNIAUTH_COOKIE_IDLEN : encoded->len);
+        memcpy(output,encoded->val,len);
+        zend_string_release(encoded);
 
         output[UNIAUTH_COOKIE_IDLEN] = 0;
-        ALLOC_INIT_ZVAL(sessid);
-        ZVAL_STRING(sessid,output,1);
+        ZVAL_STRING(&sessid,output);
 
         /* Go ahead and set the cookie in the superglobal so it is available for
          * userland. Subsequent calls to the uniauth extension could require the
          * global to be set.
          */
-        SET_GLOBAL("_COOKIE","uniauth",sessid);
+        if (SET_GLOBAL("_COOKIE","uniauth",&sessid) != SUCCESS) {
+            zend_throw_exception(NULL,"Cannot set 'uniauth' in $_COOKIE",0);
+            return;
+        }
     }
     else {
+        ZVAL_COPY(&sessid,result);
+
         /* If a cookie was already sent, then lookup the uniauth record to
          * determine the expires value and if we need to touch the cookie.
          */
@@ -916,7 +943,7 @@ PHP_FUNCTION(uniauth_cookie)
         struct uniauth_storage local;
         struct uniauth_storage* stor;
 
-        stor = uniauth_connect_lookup(Z_STRVAL_P(sessid),Z_STRLEN_P(sessid),&local);
+        stor = uniauth_connect_lookup(Z_STRVAL(sessid),Z_STRLEN(sessid),&local);
         if (stor != NULL) {
             if (stor->expire > 0) {
                 /* We touch the cookie if the redirect was set to transfer
@@ -953,12 +980,9 @@ PHP_FUNCTION(uniauth_cookie)
 
     /* Create/touch the cookie. */
     if (touch) {
-        set_uniauth_cookie(Z_STRVAL_P(sessid),Z_STRLEN_P(sessid),expires);
+        set_uniauth_cookie(Z_STRVAL(sessid),Z_STRLEN(sessid),expires);
     }
 
-    /* Return a copy of the zval. We need to preserve the sessid zval since it
-     * lives in the _COOKIE hashtable.
-     */
-    RETVAL_ZVAL(sessid,1,0);
+    RETVAL_ZVAL(&sessid,0,0);
 }
 /* }}} */

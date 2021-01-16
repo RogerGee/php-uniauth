@@ -1,9 +1,12 @@
-php-uniauth - v1.1.0
+php-uniauth - v1.1.1
 --------------------------------------------------------------------------------
-This project provides a PHP extension for performing universal authentication
-among different sites running on the same host (including different domains that
-resolve to the same physical host). The implementation consists of an extension
-that provides PHP userspace an interface for connecting with the uniauth server.
+This PHP extension provides authentication session management via a uniauth
+server. The extension implements an authentication flow designed to make user
+authentication universal among applications talking to the same uniauth server.
+
+The implementation consists of an extension that provides PHP userspace a
+high-level interface for connecting with a uniauth server and manipulating
+sessions.
 
 Uniauth server implementations:
 
@@ -18,18 +21,46 @@ Primary author:
 --------------------------------------------------------------------------------
 The Uniauth Flow
 
-Uniauth is a redirect-based signin flow that implements authentication for web
-applications running on the same host. Unlike other authentication flows it does
-not transmit user/redirect information in the web requests (e.g. a token or user
-credentials). Instead it transmits a session ID to identify pending
-authentication requests. Login status information (i.e. a user ID and name) and
-redirect information are transmitted locally to the uniauth server.
+Uniauth implements a user authentication flow for web applications. This flow
+involves a persistent uniauth server and a stateless client. Whenever the client
+needs to check user authentication, it connects to the server and queries a
+session record by ID. Likewise, when the client needs to create and authenticate
+a session, it uses the server to store and update the session information.
 
-The server implementation maintains a database of uniauth records that hold
-information about the user session. Records are keyed by a session key
-(sometimes called session ID in this document). This key may be provided by the
-userspace script. If the userspace script does not provide a session key, the
-PHP session ID will be used as the key instead. (This means you must have
+There are two roles in the flow taken by applications:
+
+    1. applicant
+    2. registrar
+
+The applicant endpoint queries authentication status and, if none is found,
+redirects to the registrar endpoint for registration, during which process
+authentication occurs. The registrar then redirects the user-agent back to the
+applicant, upon which event the applicant queries authentication status and
+finds that it exists. This entire process happens transparently in the
+applicant: the applicant does not have to handle both cases separately.
+
+The registrar endpoint provides a means to collect user credentials and
+authenticate users. Once the registrar has verified user credentials, it submits
+the collected user ID and name (along with a display name) to the uniauth
+server. The server assigns this information to an internal session, thus
+registering the user as authenticated. Internally, this uniauth registration is
+shared among all applications that use the registrar endpoint for the same user.
+
+While the specifics of uniauth sessions may differ between server
+implementations, the basic idea is that a single registration is maintained
+among all applicants targeting the same registrar. The means that the server
+internally connects the applicant and registrar sessions so that they point at
+the same registration. This allows applicants from different domains
+(i.e. having different session IDs) to utilize the same registration.
+
+--------------------------------------------------------------------------------
+Storage
+
+A uniauth server maintains a database of authentication records that hold
+information about the user session. Records are keyed by a session ID (sometimes
+called a session key in this document). This ID may be provided by the userspace
+script. If the userspace script does not provide a session ID, the PHP session
+ID will be used as the uniauth session ID instead. (This means you must have
 already called session_start() in your program).
 
     *NOTE* The extension does not actually manipulate the PHP session data
@@ -39,46 +70,31 @@ already called session_start() in your program).
     however still use the PHP session backend to store additional session
     values.
 
-If a PHP session is not required, then a cookie can be used instead. To avoid
-boilerplate associated with creating cookies and generating uniauth keys, the
-uniauth_cookie() function is provided. This function generates a random cookie
-session, overriding the default behavior of using the PHP session when using the
-other extension functions. It also sets the cookie so it's transmitted to the
-user agent.
-
-There are two roles in the flow taken by applications:
-
-    1. registrar
-    2. applicant
-
-The registrar endpoint provides a means to collect user credentials and
-authenticate users. It registers the collected user ID and name (along with a
-display name) to a uniauth session keyed by ID. Internally, this uniauth session
-is shared among all applications that use the registrar endpoint for
-authentication.
-
-The applicant endpoint queries authentication status and, if none is found,
-redirects to the registrar endpoint for authentication. Upon the user
-successfully providing credentials, the registrar will transfer authentication
-information from its session into the applicant session. Internally, this
-process consists of effectively making the applicant session point to the
-existing registrar session on the backend. The registrar then redirects the
-user-agent back to the applicant site, upon which event the applicant queries
-authentication status and finds that it exists.
+If a PHP session is not required, then a separate cookie can be used instead. To
+avoid boilerplate associated with creating cookies and generating uniauth keys,
+the uniauth_cookie() function is provided. This function generates a random
+cookie session, overriding the default behavior of using the PHP session when
+using the other extension functions. It also sets the cookie so it gets
+transmitted to the user agent.
 
 --------------------------------------------------------------------------------
 PHP Userspace Functions Overview
 
 Applicant Endpoint:
 
-The core function used by applicants is uniauth(), which checks to see if an
-authenticated session exists for session. If not, it redirects the user-agent to
-the specified authentication endpoint. Otherwise, the function returns an
-associative array containing the 'id', 'user' and 'display' records for the
-entry.
+The core function used by applicants is uniauth(), which checks to see if a
+registration exists for session (i.e. checks if the session is
+authenticated). If not, it transparently redirects the user-agent to the
+specified registrar endpoint. Otherwise, the function returns an associative
+array containing the 'id', 'user' and 'display' records for the entry.
 
-Note: a uniauth session is considered authenticated by the implementation when
-there is a valid ID associated with the session (i.e. id >= 1).
+When an applicant redirects to a registrar, it passes the uniauth session ID via
+a GET query parameter named 'uniauth'. This allows the registrar to identify the
+target session that is to be associated with the registration should
+authentication be successful.
+
+Note: a uniauth session is considered authenticated by the standard when there
+is a valid ID associated with the session (i.e. id >= 1).
 
 A call to uniauth() is the minimum that is required for applicants. This call
 will transparently begin the redirect flow.
@@ -89,22 +105,24 @@ When calling a registrar endpoint, one of two things can happen.
 
 1. There is no uniauth session for the registrar:
 
-    In this case a session must be created and authenticated. The registrar
+    In this case, a session must be created and authenticated. The registrar
     endpoint calls uniauth_apply() to begin this process. This function takes
     the query parameter passed from the applicant's call to uniauth() and stores
     it in a new uniauth session. It must set a cookie (possibly via
-    uniauth_cookie()) or use the PHP session to track this uniauth session.
+    uniauth_cookie()) or use the PHP session to track the new uniauth session.
 
-    Now the registrar can present a login form or use HTTP basic/digest auth to
-    collect user credentials. When the credentials have been verified, the
-    uniauth_register() function can be called with the correct information. This
-    updates the registrar uniauth session with the provided information.
+    Now the registrar can present a login form or similar means to collect user
+    credentials. When the credentials have been verified, the uniauth_register()
+    function can be called with the correct information. This updates the
+    registration associated with the registrar session. Once registration is
+    complete, the registrar session is authenticated and ready to transfer.
 
     Finally, the uniauth_transfer() function is called to transfer the registrar
     session into the applicant session. Internally this updates the applicant
-    record to point to the registrar record. This function will automatically
-    redirect the user-agent back to the original, applicant endpoint, thus
-    "transferring" them back to the original, called endpoint.
+    session to point at the same registration as the registrar session. This
+    function will automatically redirect the user-agent back to the original,
+    applicant endpoint, thus "transferring" back to the original applicant
+    endpoint.
 
 2. There is already an authenticated uniauth session for the registrar:
 
@@ -117,12 +135,13 @@ When calling a registrar endpoint, one of two things can happen.
 
 Logging Out:
 
-To explictly invalidate a uniauth session, the uniauth_purge() API is
-employed. This simply invalidates the session ID so the user login status is
-void. Note that this will log out all services (i.e. vhosts) that are using the
-session. The session record is not technically freed until it expires
-naturally. This means the same uniauth IDs can be used again in future
-registration attempts.
+To explictly invalidate a uniauth session, the uniauth_purge() API may be
+employed. This function clears out the registration associated with the session
+ID so the user login status is void. Note that this will log out all services
+(i.e. applicants) that have sessions referencing the registration. The session
+record is not technically freed until it expires naturally. This means the same
+session IDs can be reused for future authentications until the user-agent drops
+the cookie.
 
 --------------------------------------------------------------------------------
 PHP Userspace Functions Detail

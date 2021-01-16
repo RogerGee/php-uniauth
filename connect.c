@@ -33,13 +33,13 @@ void uniauth_storage_delete(struct uniauth_storage* stor)
 
 ZEND_DECLARE_MODULE_GLOBALS(uniauth);
 
-static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls TSRMLS_DC)
+static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
 {
     gbls->conn = -1;
     gbls->useCookie = 0;
 }
 
-static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls TSRMLS_DC)
+static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
 {
     if (gbls->conn != -1) {
         close(gbls->conn);
@@ -54,7 +54,7 @@ void uniauth_globals_init()
         (ts_allocate_ctor)php_uniauth_globals_ctor,
         (ts_allocate_dtor)php_uniauth_globals_dtor);
 #else
-    php_uniauth_globals_ctor(&uniauth_globals TSRMLS_CC);
+    php_uniauth_globals_ctor(&uniauth_globals);
 #endif
 }
 
@@ -66,7 +66,7 @@ void uniauth_globals_request_init()
 void uniauth_globals_shutdown()
 {
 #ifndef ZTS
-    php_uniauth_globals_dtor(&uniauth_globals TSRMLS_CC);
+    php_uniauth_globals_dtor(&uniauth_globals);
 #endif
 }
 
