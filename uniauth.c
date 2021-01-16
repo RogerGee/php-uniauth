@@ -200,7 +200,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     /* Make sure $_SERVER is auto loaded already. */
     if (check_global("_SERVER",sizeof("_SERVER")-1) != SUCCESS) {
-        zend_throw_exception(NULL,"Failed to activate $_SERVER",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Failed to activate $_SERVER",0);
         return FAILURE;
     }
 
@@ -212,7 +212,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
     if (entry == NULL) {
-        zend_throw_exception(NULL,"Failed to look up $_SERVER",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Failed to look up $_SERVER",0);
         return FAILURE;
     }
     server = Z_ARRVAL_P(entry);
@@ -229,7 +229,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         host = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'HTTP_HOST' variable",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'HTTP_HOST' variable",0);
         return FAILURE;
     }
 
@@ -258,7 +258,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         }
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
         return FAILURE;
     }
 
@@ -268,7 +268,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         uri = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
         return FAILURE;
     }
 
@@ -311,9 +311,9 @@ static void set_uniauth_cookie(char* id,int id_len,time_t expires)
 
     /* Set cookie header via 'standard' extension. */
 #if PHP_API_VERSION > 20170718
-    php_setcookie(name,value,expires,path,NULL,0,0,NULL,1 TSRMLS_CC);
+    php_setcookie(name,value,expires,path,NULL,0,0,NULL,1);
 #else
-    php_setcookie(name,value,expires,path,NULL,0,1,0 TSRMLS_CC);
+    php_setcookie(name,value,expires,path,NULL,0,1,0);
 #endif
 
     zend_string_release(name);
@@ -372,7 +372,7 @@ static char* get_default_sessid(size_t* out_len)
             zend_throw_exception(
                 NULL,
                 "Failed to load uniauth identifier from uniauth cookie",
-                0 TSRMLS_CC);
+                0);
             return NULL;
         }
         sessid = Z_STRVAL_P(zv);
@@ -383,7 +383,7 @@ static char* get_default_sessid(size_t* out_len)
             zend_throw_exception(
                 NULL,
                 "Failed to load uniauth identifier from php session",
-                0 TSRMLS_CC);
+                0);
             return NULL;
         }
         sessid = PS(id)->val;
@@ -670,11 +670,11 @@ PHP_FUNCTION(uniauth_transfer)
      */
     src = uniauth_connect_lookup(sessid,sesslen,backing);
     if (src == NULL) {
-        zend_throw_exception(NULL,"Source registration does not exist",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Source registration does not exist",0);
         return;
     }
     if (src->tag == NULL) {
-        zend_throw_exception(NULL,"Source registration did not apply",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Source registration did not apply",0);
         uniauth_storage_delete(backing);
         return;
     }
@@ -686,7 +686,7 @@ PHP_FUNCTION(uniauth_transfer)
      */
     dst = uniauth_connect_lookup(foreignSession,foreignSessionlen,backing+1);
     if (dst == NULL) {
-        zend_throw_exception(NULL,"Destination registration does not exist",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"Destination registration does not exist",0);
         uniauth_storage_delete(backing);
         return;
     }
@@ -695,7 +695,7 @@ PHP_FUNCTION(uniauth_transfer)
      * uniauth daemon will do this for us.
      */
     if (uniauth_connect_transfer(sessid,foreignSession) == -1) {
-        zend_throw_exception(NULL,"transfer failed",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"transfer failed",0);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -711,7 +711,7 @@ PHP_FUNCTION(uniauth_transfer)
         efree(ctr.line);
     }
     else {
-        zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -824,7 +824,7 @@ PHP_FUNCTION(uniauth_apply)
         if (!create) {
             uniauth_storage_delete(stor);
         }
-        zend_throw_exception(NULL,"No 'uniauth' query parameter was specified",0 TSRMLS_CC);
+        zend_throw_exception(NULL,"No 'uniauth' query parameter was specified",0);
         return;
     }
     stor->tag = estrdup(applicantID);
@@ -906,7 +906,7 @@ PHP_FUNCTION(uniauth_cookie)
         i = 0;
         while (i < sizeof(buf)) {
             long n;
-            n = php_rand(TSRMLS_C);
+            n = php_rand();
             RAND_RANGE(n,0,0xff,PHP_RAND_MAX);
             buf[i] = (unsigned char)n;
             i += 1;
@@ -929,7 +929,7 @@ PHP_FUNCTION(uniauth_cookie)
          * global to be set.
          */
         if (SET_GLOBAL("_COOKIE","uniauth",&sessid) != SUCCESS) {
-            zend_throw_exception(NULL,"Cannot set 'uniauth' in $_COOKIE",0 TSRMLS_CC);
+            zend_throw_exception(NULL,"Cannot set 'uniauth' in $_COOKIE",0);
             return;
         }
     }
