@@ -905,9 +905,13 @@ PHP_FUNCTION(uniauth_cookie)
 
         i = 0;
         while (i < sizeof(buf)) {
-            long n;
+            zend_long n;
+#if PHP_API_VERSION >= 20180731
+            n = php_mt_rand_range(0,0xff);
+#else
             n = php_rand();
             RAND_RANGE(n,0,0xff,PHP_RAND_MAX);
+#endif
             buf[i] = (unsigned char)n;
             i += 1;
         }
