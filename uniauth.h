@@ -31,7 +31,7 @@
 /* Definitions */
 
 #define PHP_UNIAUTH_EXTNAME "uniauth"
-#define PHP_UNIAUTH_EXTVER  "1.1.1"
+#define PHP_UNIAUTH_EXTVER  "1.1.0-dev"
 
 #define LOCATION_HEADER "Location: "
 #define UNIAUTH_QSTRING "?uniauth="
