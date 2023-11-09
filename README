@@ -156,7 +156,7 @@ PHP Userspace Functions Detail
         values or cookies or aborting the script. Make sure you are aware of
         these.
 
-    array uniauth([string url, string sessionId])
+    array uniauth([string $url, string $session_id])
 
         This function looks up an authenticated uniauth session.
 
@@ -178,11 +178,11 @@ PHP Userspace Functions Detail
         requested session ID. Otherwise, the current PHP session ID is used
         unless uniauth_cookie() was previously called.
 
-            url - The url of the registrar endpoint handling the
+            $url - The url of the registrar endpoint handling the
             authentication. This parameter may be null to avoid a redirect and
             just query the status of a uniauth session.
 
-            sessionId - An override uniauth session ID to use in place of the
+            $session_id - An override uniauth session ID to use in place of the
             default behavior.
 
         Return value: an array with the following keys pulled from the uniauth
@@ -192,12 +192,14 @@ PHP Userspace Functions Detail
             user - user handle as determined by the registrar
             display - user display name as determined by the registrar
 
-    bool uniauth_check([string sessionId])
+        Returns mnull if no session was available and a redirect did not occur.
+
+    bool uniauth_check([string $session_id])
 
         This function determines if an authenticated session exists. It does not
         update the session expiration.
 
-            sessionId - Uniauth session ID to use (optional)
+            $session_id - Uniauth session ID to use (optional)
 
                 The actual session ID used is determined in the same way as in
                 the uniauth() function.
@@ -216,7 +218,7 @@ PHP Userspace Functions Detail
             BAD: if (uniauth_check()) $login = uniauth('http://auth.tld')
                  else $login = null;
 
-    void uniauth_apply([string sessionId])
+    void uniauth_apply([string $session_id])
 
         This function creates a uniauth session for the registrar endpoint
         application (if it doesn't exist). The function annotates the new
@@ -227,7 +229,7 @@ PHP Userspace Functions Detail
         registrar endpoint. It must be called before any uniauth_transfer() call
         would succeed.
 
-            sessionId - Uniauth session ID to use (optional)
+            $session_id - Uniauth session ID to use (optional)
 
                 The actual session ID used is determined in the same way as in
                 the uniauth() function.
@@ -235,25 +237,25 @@ PHP Userspace Functions Detail
         The session ID is determined in the same way as in the uniauth()
         function.
 
-    void uniauth_register(int id, string name, string displayName[, string sessionId, int lifetime])
+    void uniauth_register(int $id, string $name, string $display_name[, string $session_id, int $lifetime])
 
         This function is used to register (i.e. authenticate) a uniauth
         session. It assigns the specified user information into the
         current/specified uniauth session. After a successful call, the session
         is now authenticated.
 
-            id - Application-defined user ID for the session
+            $id - Application-defined user ID for the session
 
-            name - Application-defined user name for the session
+            $name - Application-defined user name for the session
 
-            displayName - Application-defined user display name for the session
+            $display_name - Application-defined user display name for the session
 
-            sessionId - Uniauth session ID to use (optional)
+            $session_id - Uniauth session ID to use (optional)
 
                 The actual session ID used is determined in the same way as in
                 the uniauth() function.
 
-            lifetime - Defines the session lifetime starting from the current instant (optional)
+            $lifetime - Defines the session lifetime starting from the current instant (optional)
 
                 If this value is omitted or a non-positive number, then the
                 uniauth session will have a lifetime equal to the value of the
@@ -265,7 +267,7 @@ PHP Userspace Functions Detail
                 Otherwise the uniauth session has the specified lifetime and the
                 uniauth cookie (if any) will be a session cookie.
 
-    void uniauth_transfer([string sessionId])
+    void uniauth_transfer([string $session_id])
 
         This function is used to transfer the information from one session
         (i.e. the source session) into another (i.e. the destination
@@ -276,16 +278,18 @@ PHP Userspace Functions Detail
         The destination session ID is pulled from the source session. It was set
         previously in a call to uniauth_apply().
 
-            sessionId - Uniauth session ID to use (optional)
+            $session_id - Uniauth session ID to use (optional)
 
                 The actual session ID used is determined in the same way as in
                 the uniauth() function.
 
-    void uniauth_purge([string sessionId])
+        This function technically does not return and will bail out to perform the redirect. Otherwise it will throw an exception on failure.
+
+    bool uniauth_purge([string $session_id])
 
         This functions ends the current uniauth session.
 
-            sessionId - Uniauth session ID to use (optional)
+            $session_id - Uniauth session ID to use (optional)
 
                 The actual session ID used is determined in the same way as in
                 the uniauth() function.
@@ -295,6 +299,9 @@ PHP Userspace Functions Detail
         in future authentication attempts within a certain amount of time. Any
         cookies used to track the session ID should also be preserved so as to
         avoid having to regenerate the session within a certain amount of time.
+
+        Returns true if the session was valid and was invalidated, false
+        otherwise.
 
     string uniauth_cookie()
 
