@@ -403,6 +403,7 @@ PHP_FUNCTION(uniauth)
 {
     struct uniauth_storage local;
     struct uniauth_storage* stor;
+    char* linebuf;
     char* url = NULL;
     size_t urllen = 0;
     char* sessid = NULL;
@@ -516,15 +517,15 @@ PHP_FUNCTION(uniauth)
      */
     bufsz = encoded->len;
     bufsz += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
-    ctr.line = emalloc(bufsz);
+    ctr.line = linebuf = emalloc(bufsz);
 
     /* Prepare the redirect header line. This will include a query parameter
      * that contains the uniauth session key.
      */
-    snprintf(ctr.line,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded->val);
+    snprintf(linebuf,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded->val);
     ctr.line_len = bufsz - 1;
     sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
-    efree(ctr.line);
+    efree(linebuf);
     zend_string_release(encoded);
 
     /* Free memory allocated for uniauth record. */
@@ -703,12 +704,13 @@ PHP_FUNCTION(uniauth_transfer)
 
     /* Add header to redirect back to pending page. */
     if (dst->redirect != NULL) {
-        ctr.line = emalloc(dst->redirectSz + sizeof(LOCATION_HEADER));
-        strcpy(ctr.line,LOCATION_HEADER);
-        strcpy(ctr.line + sizeof(LOCATION_HEADER) - 1,dst->redirect);
+        char* linebuf;
+        ctr.line = linebuf = emalloc(dst->redirectSz + sizeof(LOCATION_HEADER));
+        strcpy(linebuf,LOCATION_HEADER);
+        strcpy(linebuf + sizeof(LOCATION_HEADER) - 1,dst->redirect);
         ctr.line_len = (uint)dst->redirectSz + sizeof(LOCATION_HEADER) - 1;
         sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
-        efree(ctr.line);
+        efree(linebuf);
     }
     else {
         zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0);
