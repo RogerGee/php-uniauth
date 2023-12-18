@@ -8,6 +8,7 @@
 
 #include "uniauth.h"
 #include "connect.h"
+#include "uniauth_arginfo.h"
 
 /* Lifetime: a session has indefinate lifetime if its value is less-than or
  * equal to zero. An indefinate session gets a lifetime of the
@@ -33,13 +34,13 @@ static PHP_FUNCTION(uniauth_cookie);
 
 /* Function entries */
 static zend_function_entry php_uniauth_functions[] = {
-    PHP_FE(uniauth,NULL)
-    PHP_FE(uniauth_register,NULL)
-    PHP_FE(uniauth_transfer,NULL)
-    PHP_FE(uniauth_check,NULL)
-    PHP_FE(uniauth_apply,NULL)
-    PHP_FE(uniauth_purge,NULL)
-    PHP_FE(uniauth_cookie,NULL)
+    PHP_FE(uniauth,arginfo_uniauth)
+    PHP_FE(uniauth_register,arginfo_uniauth_register)
+    PHP_FE(uniauth_transfer,arginfo_uniauth_transfer)
+    PHP_FE(uniauth_check,arginfo_uniauth_check)
+    PHP_FE(uniauth_apply,arginfo_uniauth_apply)
+    PHP_FE(uniauth_purge,arginfo_uniauth_purge)
+    PHP_FE(uniauth_cookie,arginfo_uniauth_cookie)
 
     {NULL, NULL, NULL}
 };
@@ -396,13 +397,14 @@ static char* get_default_sessid(size_t* out_len)
 
 /* Implementation of PHP userspace functions */
 
-/* {{{ proto array uniauth([string url, string key])
+/* {{{ proto ?array uniauth([string url, string session_id])
    Looks up authentication session information or otherwise begins the uniauth
    flow if given authentication endpoint url. */
 PHP_FUNCTION(uniauth)
 {
     struct uniauth_storage local;
     struct uniauth_storage* stor;
+    char* linebuf;
     char* url = NULL;
     size_t urllen = 0;
     char* sessid = NULL;
@@ -424,7 +426,8 @@ PHP_FUNCTION(uniauth)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETURN_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
@@ -472,8 +475,9 @@ PHP_FUNCTION(uniauth)
          * to redirect the script.
          */
         if (set_redirect_uri(stor) != SUCCESS) {
+            /* Exception is thrown */
             uniauth_storage_delete(stor);
-            RETURN_FALSE;
+            return;
         }
 
         /* Commit redirect URI changes back to server. */
@@ -498,8 +502,9 @@ PHP_FUNCTION(uniauth)
 
         /* Fill out stor->redirect. */
         if (set_redirect_uri(stor) != SUCCESS) {
+            /* Exception is thrown */
             uniauth_storage_delete(stor);
-            RETURN_FALSE;
+            return;
         }
 
         /* Send new record to the uniauth daemon. */
@@ -516,15 +521,15 @@ PHP_FUNCTION(uniauth)
      */
     bufsz = encoded->len;
     bufsz += urllen + sizeof(LOCATION_HEADER) + sizeof(UNIAUTH_QSTRING) - 1;
-    ctr.line = emalloc(bufsz);
+    ctr.line = linebuf = emalloc(bufsz);
 
     /* Prepare the redirect header line. This will include a query parameter
      * that contains the uniauth session key.
      */
-    snprintf(ctr.line,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded->val);
+    snprintf(linebuf,bufsz,"%s%s%s%s",LOCATION_HEADER,url,UNIAUTH_QSTRING,encoded->val);
     ctr.line_len = bufsz - 1;
     sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
-    efree(ctr.line);
+    efree(linebuf);
     zend_string_release(encoded);
 
     /* Free memory allocated for uniauth record. */
@@ -535,7 +540,7 @@ PHP_FUNCTION(uniauth)
 }
 /* }}} */
 
-/* {{{ proto void uniauth_register(int id, string name, string displayName [, string key, int lifetime])
+/* {{{ proto void uniauth_register(int id, string name, string display_name [, string key, int lifetime])
    Registers user information with the current session */
 PHP_FUNCTION(uniauth_register)
 {
@@ -568,7 +573,8 @@ PHP_FUNCTION(uniauth_register)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
@@ -638,7 +644,7 @@ PHP_FUNCTION(uniauth_register)
 }
 /* }}} */
 
-/* {{{ proto void uniauth_transfer([string key])
+/* {{{ proto void uniauth_transfer([string session_id])
    Completes the auth flow by transferring the current uniauth record into the
    awaiting applicant record */
 PHP_FUNCTION(uniauth_transfer)
@@ -660,7 +666,8 @@ PHP_FUNCTION(uniauth_transfer)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
@@ -695,7 +702,7 @@ PHP_FUNCTION(uniauth_transfer)
      * uniauth daemon will do this for us.
      */
     if (uniauth_connect_transfer(sessid,foreignSession) == -1) {
-        zend_throw_exception(NULL,"transfer failed",0);
+        zend_throw_exception(NULL,"the transfer operation failed",0);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -703,12 +710,13 @@ PHP_FUNCTION(uniauth_transfer)
 
     /* Add header to redirect back to pending page. */
     if (dst->redirect != NULL) {
-        ctr.line = emalloc(dst->redirectSz + sizeof(LOCATION_HEADER));
-        strcpy(ctr.line,LOCATION_HEADER);
-        strcpy(ctr.line + sizeof(LOCATION_HEADER) - 1,dst->redirect);
+        char* linebuf;
+        ctr.line = linebuf = emalloc(dst->redirectSz + sizeof(LOCATION_HEADER));
+        strcpy(linebuf,LOCATION_HEADER);
+        strcpy(linebuf + sizeof(LOCATION_HEADER) - 1,dst->redirect);
         ctr.line_len = (uint)dst->redirectSz + sizeof(LOCATION_HEADER) - 1;
         sapi_header_op(SAPI_HEADER_REPLACE,&ctr);
-        efree(ctr.line);
+        efree(linebuf);
     }
     else {
         zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0);
@@ -735,7 +743,7 @@ PHP_FUNCTION(uniauth_transfer)
 }
 /* }}} */
 
-/* {{{ proto bool uniauth_check([string key])
+/* {{{ proto bool uniauth_check([string session_id])
    Determines if an authentication session exists */
 PHP_FUNCTION(uniauth_check)
 {
@@ -754,7 +762,8 @@ PHP_FUNCTION(uniauth_check)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
@@ -771,7 +780,7 @@ PHP_FUNCTION(uniauth_check)
 }
 /* }}} */
 
-/* {{{ proto void uniauth_apply([string key])
+/* {{{ proto void uniauth_apply([string session_id])
    Begins the application process by creating the registrar session and assigning
    the session ID passed in $_GET['uniauth'] to it. */
 PHP_FUNCTION(uniauth_apply)
@@ -793,7 +802,8 @@ PHP_FUNCTION(uniauth_apply)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
@@ -841,7 +851,7 @@ PHP_FUNCTION(uniauth_apply)
 }
 /* }}} */
 
-/* {{{ proto void uniauth_purge([string key])
+/* {{{ proto bool uniauth_purge([string session_id])
    Ends the current uniauth session */
 PHP_FUNCTION(uniauth_purge)
 {
@@ -860,7 +870,8 @@ PHP_FUNCTION(uniauth_purge)
         sessid = get_default_sessid(&sesslen);
 
         if (sessid == NULL) {
-            RETVAL_FALSE;
+            /* Exception is thrown */
+            return;
         }
     }
 
