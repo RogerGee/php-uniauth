@@ -49,7 +49,7 @@ struct uniauth_socket_info
 {
     const char* path;
     const char* host;
-    int port;
+    const char* port;
 };
 
 /* Uniauth module globals */

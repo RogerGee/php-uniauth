@@ -15,6 +15,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <netinet/in.h>
+#include <netdb.h>
 #include <poll.h>
 #include <unistd.h>
 
@@ -28,10 +30,14 @@
 static int uniauth_connect()
 {
     int sock;
-    struct sockaddr_un addr;
-    socklen_t len;
+    struct sockaddr* addr;
+    struct sockaddr_un addr_un;
+    struct sockaddr_in addr_in;
+    socklen_t addr_len;
+    int is_inet_socket;
     int* psock = &UNIAUTH_G(conn);
     struct pollfd pollInfo;
+    const struct uniauth_socket_info* socket_info = &UNIAUTH_G(socket_info);
 
     /* See if we already have a connection. */
     sock = *psock;
@@ -53,26 +59,66 @@ static int uniauth_connect()
     }
 
     /* Since we do not have a connection, attempt a connect to the uniauth
-     * daemon.
+     * daemon based on the "socket_path" configuration from INI.
      */
-    sock = socket(AF_UNIX,SOCK_STREAM,0);
+
+    is_inet_socket = (strlen(socket_info->host) > 0);
+
+    if (is_inet_socket) {
+        sock = socket(AF_INET,SOCK_STREAM,0);
+    }
+    else {
+        sock = socket(AF_UNIX,SOCK_STREAM,0);
+    }
+
     if (sock == -1) {
         php_error(E_ERROR,"fail socket(): %s",strerror(errno));
         return -1;
     }
 
     /* Do connect. */
-    memset(&addr,0,sizeof(struct sockaddr_un));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path,SOCKET_PATH_DEFAULT,sizeof(SOCKET_PATH_DEFAULT)-1);
-    if (addr.sun_path[0] == '@') {
-        addr.sun_path[0] = 0;
-        len = offsetof(struct sockaddr_un,sun_path) + sizeof(SOCKET_PATH_DEFAULT) - 1;
+
+    if (is_inet_socket) {
+        int error;
+        struct addrinfo* result;
+        struct addrinfo hints;
+        memset(&hints,0,sizeof(struct addrinfo));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = AI_NUMERICSERV;
+
+        /* Look up address information for configured host/port. */
+        error = getaddrinfo(socket_info->host,socket_info->port,&hints,&result);
+        if (error != 0) {
+            php_error(E_ERROR,"cannot lookup server host: %s",gai_strerror(error));
+            return -1;
+        }
+
+        addr = result->ai_addr;
+        addr_len = result->ai_addrlen;
     }
     else {
-        len = sizeof(struct sockaddr_un);
+        size_t socket_path_len;
+        const char* socket_path;
+        socket_path = (strlen(socket_info->path) > 0) ? socket_info->path : SOCKET_PATH_DEFAULT;
+        socket_path_len = strlen(socket_path);
+
+        addr = (struct sockaddr*)&addr_un;
+        memset(&addr_un,0,sizeof(struct sockaddr_un));
+        addr_un.sun_family = AF_UNIX;
+        strncpy(addr_un.sun_path,socket_path,socket_path_len);
+
+        /* Support the abstract socket path namespace on Linux. */
+        if (addr_un.sun_path[0] == '@') {
+            addr_un.sun_path[0] = 0;
+            addr_len = offsetof(struct sockaddr_un,sun_path) + socket_path_len;
+        }
+        else {
+            addr_len = sizeof(struct sockaddr_un);
+        }
     }
-    if (connect(sock,(struct sockaddr*)&addr,len) == -1) {
+
+    if (connect(sock,addr,addr_len) == -1) {
         php_error(E_ERROR,"could not connect to uniauth daemon: %s",strerror(errno));
         return -1;
     }

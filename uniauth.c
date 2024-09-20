@@ -69,7 +69,7 @@ PHP_INI_BEGIN()
 /* NOTE: Since the socket is cached, all socket INIs are system-level only. */
 PHP_INI_ENTRY(UNIAUTH_SOCKET_PATH_INI, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_SOCKET_HOST_INI, "", PHP_INI_SYSTEM, NULL)
-PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "8008", PHP_INI_SYSTEM, NULL)
+PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "8002", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
 PHP_INI_END()
 
@@ -77,8 +77,8 @@ PHP_INI_END()
 
 PHP_MINIT_FUNCTION(uniauth)
 {
-    uniauth_globals_init();
     REGISTER_INI_ENTRIES();
+    uniauth_globals_init();
 
     return SUCCESS;
 }
@@ -409,7 +409,7 @@ static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
     memset(&gbls->socket_info,0,sizeof(struct uniauth_socket_info));
     gbls->socket_info.path = INI_STR(UNIAUTH_SOCKET_PATH_INI);
     gbls->socket_info.host = INI_STR(UNIAUTH_SOCKET_HOST_INI);
-    gbls->socket_info.port = INI_INT(UNIAUTH_SOCKET_PORT_INI);
+    gbls->socket_info.port = INI_STR(UNIAUTH_SOCKET_PORT_INI);
 }
 
 static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
