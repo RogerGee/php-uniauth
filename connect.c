@@ -18,58 +18,6 @@
 #include <poll.h>
 #include <unistd.h>
 
-void uniauth_storage_delete(struct uniauth_storage* stor)
-{
-    /* Free the members. Some members may not be allocated. The structure itself
-     * is not free'd here (since it may be allocated on the stack).
-     */
-
-    efree(stor->key);
-    efree(stor->username);
-    efree(stor->displayName);
-    efree(stor->redirect);
-    efree(stor->tag);
-}
-
-ZEND_DECLARE_MODULE_GLOBALS(uniauth);
-
-static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
-{
-    gbls->conn = -1;
-    gbls->useCookie = 0;
-}
-
-static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
-{
-    if (gbls->conn != -1) {
-        close(gbls->conn);
-    }
-}
-
-void uniauth_globals_init()
-{
-#ifdef ZTS
-    ts_allocate_id(&uniauth_globals_id,
-        sizeof(zend_uniauth_globals),
-        (ts_allocate_ctor)php_uniauth_globals_ctor,
-        (ts_allocate_dtor)php_uniauth_globals_dtor);
-#else
-    php_uniauth_globals_ctor(&uniauth_globals);
-#endif
-}
-
-void uniauth_globals_request_init()
-{
-    UNIAUTH_G(useCookie) = 0;
-}
-
-void uniauth_globals_shutdown()
-{
-#ifndef ZTS
-    php_uniauth_globals_dtor(&uniauth_globals);
-#endif
-}
-
 /* NOTE: the following functions implement the uniauth connect api used by this
  * module's PHP functions. If an error occurs, we use php_error() to raise the
  * error, which bails out of the current script.
@@ -116,10 +64,10 @@ static int uniauth_connect()
     /* Do connect. */
     memset(&addr,0,sizeof(struct sockaddr_un));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path,SOCKET_PATH,sizeof(SOCKET_PATH)-1);
+    strncpy(addr.sun_path,SOCKET_PATH_DEFAULT,sizeof(SOCKET_PATH_DEFAULT)-1);
     if (addr.sun_path[0] == '@') {
         addr.sun_path[0] = 0;
-        len = offsetof(struct sockaddr_un,sun_path) + sizeof(SOCKET_PATH) - 1;
+        len = offsetof(struct sockaddr_un,sun_path) + sizeof(SOCKET_PATH_DEFAULT) - 1;
     }
     else {
         len = sizeof(struct sockaddr_un);
@@ -424,6 +372,21 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
          iter += n;
      }
  }
+
+ /* Uniauth record functions */
+
+ void uniauth_storage_delete(struct uniauth_storage* stor)
+{
+    /* Free the members. Some members may not be allocated. The structure itself
+     * is not free'd here (since it may be allocated on the stack).
+     */
+
+    efree(stor->key);
+    efree(stor->username);
+    efree(stor->displayName);
+    efree(stor->redirect);
+    efree(stor->tag);
+}
 
  /* Connect API implementations */
 

@@ -66,6 +66,10 @@ ZEND_GET_MODULE(uniauth)
 /* Uniauth INI settings */
 
 PHP_INI_BEGIN()
+/* NOTE: Since the socket is cached, all socket INIs are system-level only. */
+PHP_INI_ENTRY(UNIAUTH_SOCKET_PATH_INI, "", PHP_INI_SYSTEM, NULL)
+PHP_INI_ENTRY(UNIAUTH_SOCKET_HOST_INI, "", PHP_INI_SYSTEM, NULL)
+PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "8008", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
 PHP_INI_END()
 
@@ -367,7 +371,7 @@ static char* get_default_sessid(size_t* out_len)
     char* sessid;
     size_t sesslen;
 
-    if (UNIAUTH_G(useCookie)) {
+    if (UNIAUTH_G(use_cookie)) {
         zv = GET_GLOBAL("_COOKIE","uniauth");
         if (zv == NULL) {
             zend_throw_exception(
@@ -393,6 +397,51 @@ static char* get_default_sessid(size_t* out_len)
 
     *out_len = sesslen;
     return sessid;
+}
+
+ZEND_DECLARE_MODULE_GLOBALS(uniauth);
+
+static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
+{
+    gbls->conn = -1;
+    gbls->use_cookie = 0;
+
+    memset(&gbls->socket_info,0,sizeof(struct uniauth_socket_info));
+    gbls->socket_info.path = INI_STR(UNIAUTH_SOCKET_PATH_INI);
+    gbls->socket_info.host = INI_STR(UNIAUTH_SOCKET_HOST_INI);
+    gbls->socket_info.port = INI_INT(UNIAUTH_SOCKET_PORT_INI);
+}
+
+static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
+{
+    if (gbls->conn != -1) {
+        close(gbls->conn);
+        gbls->conn = -1;
+    }
+}
+
+void uniauth_globals_init()
+{
+#ifdef ZTS
+    ts_allocate_id(&uniauth_globals_id,
+        sizeof(zend_uniauth_globals),
+        (ts_allocate_ctor)php_uniauth_globals_ctor,
+        (ts_allocate_dtor)php_uniauth_globals_dtor);
+#else
+    php_uniauth_globals_ctor(&uniauth_globals);
+#endif
+}
+
+void uniauth_globals_request_init()
+{
+    UNIAUTH_G(use_cookie) = 0;
+}
+
+void uniauth_globals_shutdown()
+{
+#ifndef ZTS
+    php_uniauth_globals_dtor(&uniauth_globals);
+#endif
 }
 
 /* Implementation of PHP userspace functions */
@@ -635,7 +684,7 @@ PHP_FUNCTION(uniauth_register)
      * indefinate lifetime. Otherwise we always produce a session cookie with no
      * expiration.
      */
-    if (UNIAUTH_G(useCookie)) {
+    if (UNIAUTH_G(use_cookie)) {
         set_uniauth_cookie(stor->key,stor->keySz,expires);
     }
 
@@ -991,7 +1040,7 @@ PHP_FUNCTION(uniauth_cookie)
     /* Toggle global flag to indicate the extension should use the uniauth
      * cookie instead of the PHP session.
      */
-    UNIAUTH_G(useCookie) = 1;
+    UNIAUTH_G(use_cookie) = 1;
 
     /* Create/touch the cookie. */
     if (touch) {

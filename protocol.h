@@ -53,7 +53,7 @@ struct uniauth_storage
 
 /* Connection constants */
 
-#define SOCKET_PATH     "@uniauth"
+#define SOCKET_PATH_DEFAULT     "@uniauth"
 
 /* Protocol constants */
 

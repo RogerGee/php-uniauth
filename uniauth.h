@@ -38,14 +38,28 @@
 
 #define UNIAUTH_COOKIE_IDLEN 64
 
-#define UNIAUTH_LIFETIME_INI "uniauth.lifetime"
+#define UNIAUTH_SOCKET_PATH_INI  "uniauth.socket_path"
+#define UNIAUTH_SOCKET_HOST_INI  "uniauth.socket_host"
+#define UNIAUTH_SOCKET_PORT_INI  "uniauth.socket_port"
+#define UNIAUTH_LIFETIME_INI     "uniauth.lifetime"
+
+/* Define type for storing socket connection information. */
+
+struct uniauth_socket_info
+{
+    const char* path;
+    const char* host;
+    int port;
+};
 
 /* Uniauth module globals */
 
 ZEND_BEGIN_MODULE_GLOBALS(uniauth)
   int conn;
-  unsigned long useCookie;
+  unsigned long use_cookie;
+  struct uniauth_socket_info socket_info;
 ZEND_END_MODULE_GLOBALS(uniauth)
+
 extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);
 
 #ifdef ZTS
@@ -57,9 +71,8 @@ extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);
     (uniauth_globals.v)
 #endif
 
-/* Routines for initializing global data. These are handled by the connect
- * module since we have a global socket connection that needs to be shutdown.
- */
+/* Routines for initializing global data. */
+
 void uniauth_globals_init();
 void uniauth_globals_request_init();
 void uniauth_globals_shutdown();
