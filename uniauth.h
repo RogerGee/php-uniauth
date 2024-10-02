@@ -22,6 +22,7 @@
 #include <ext/standard/base64.h>
 #include <ext/standard/php_rand.h>
 #include <ext/session/php_session.h>
+#include <ext/spl/spl_exceptions.h>
 #include <Zend/zend_exceptions.h>
 #include <SAPI.h>
 #ifdef ZTS
@@ -42,6 +43,15 @@
 #define UNIAUTH_SOCKET_HOST_INI  "uniauth.socket_host"
 #define UNIAUTH_SOCKET_PORT_INI  "uniauth.socket_port"
 #define UNIAUTH_LIFETIME_INI     "uniauth.lifetime"
+
+#define UNIAUTH_ERROR_INVALID_SERVERVARS        100
+#define UNIAUTH_ERROR_NO_SESSION                101
+#define UNIAUTH_ERROR_SOURCE_NOT_EXIST          102
+#define UNIAUTH_ERROR_SOURCE_NOT_APPLY          103
+#define UNIAUTH_ERROR_DEST_NOT_EXIST            104
+#define UNIAUTH_ERROR_TRANSFER_FAILED           105
+#define UNIAUTH_ERROR_MISSING_REDIRECT          106
+#define UNIAUTH_ERROR_MISSING_UNIAUTH_PARAM     107
 
 /* Define type for storing socket connection information. */
 
@@ -70,6 +80,9 @@ extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);
 #define UNIAUTH_G(v)                            \
     (uniauth_globals.v)
 #endif
+
+/* Class entry for exception type */
+extern zend_class_entry* exception_ce;
 
 /* Routines for initializing global data. */
 
