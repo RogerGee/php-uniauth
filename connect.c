@@ -351,7 +351,7 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
         return 0;
     }
 
-    for (i = 0;i < UNIAUTH_INT_SZ;++i) {
+    for (i = 0;i < UNIAUTH_TIME_SZ;++i) {
         value |= ((uint64_t)buffer[i] << (i*8));
     }
 
