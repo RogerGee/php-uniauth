@@ -249,7 +249,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     /* Make sure $_SERVER is auto loaded already. */
     if (check_global("_SERVER",sizeof("_SERVER")-1) != SUCCESS) {
-        zend_throw_exception(NULL,"uniauth: Failed to activate $_SERVER",0);
+        zend_throw_exception(NULL,"[uniauth] Failed to activate $_SERVER",0);
         return FAILURE;
     }
 
@@ -261,7 +261,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
     if (entry == NULL) {
-        zend_throw_exception(NULL,"uniauth: Failed to look up $_SERVER",0);
+        zend_throw_exception(NULL,"[uniauth] Failed to look up $_SERVER",0);
         return FAILURE;
     }
     server = Z_ARRVAL_P(entry);
@@ -1064,7 +1064,7 @@ PHP_FUNCTION(uniauth_cookie)
          * global to be set.
          */
         if (SET_GLOBAL("_COOKIE","uniauth",&sessid) != SUCCESS) {
-            zend_throw_exception(NULL,"uniauth: Cannot set 'uniauth' in $_COOKIE",0);
+            zend_throw_exception(NULL,"[uniauth] Cannot set 'uniauth' in $_COOKIE",0);
             return;
         }
     }

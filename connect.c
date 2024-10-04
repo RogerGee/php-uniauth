@@ -50,7 +50,7 @@ static int uniauth_connect()
         pollInfo.events = POLLHUP | POLLERR | POLLNVAL;
         pollInfo.revents = 0;
         if (poll(&pollInfo,1,0) > 0) {
-            php_error(E_WARNING,"connection to uniauth daemon lost: attempting reconnect");
+            php_error(E_WARNING,"[uniauth] Connection to uniauth daemon lost: attempting reconnect");
             close(sock);
         }
         else {
@@ -72,7 +72,7 @@ static int uniauth_connect()
     }
 
     if (sock == -1) {
-        php_error(E_ERROR,"fail socket(): %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Fail socket(): %s",strerror(errno));
         return -1;
     }
 
@@ -90,7 +90,7 @@ static int uniauth_connect()
         /* Look up address information for configured host/port. */
         error = getaddrinfo(socket_info->host,socket_info->port,&hints,&result);
         if (error != 0) {
-            php_error(E_ERROR,"cannot lookup server host: %s",gai_strerror(error));
+            php_error(E_ERROR,"[uniauth] Cannot lookup server host: %s",gai_strerror(error));
             return -1;
         }
 
@@ -119,7 +119,7 @@ static int uniauth_connect()
     }
 
     if (connect(sock,addr,addr_len) == -1) {
-        php_error(E_ERROR,"could not connect to uniauth daemon: %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Could not connect to uniauth daemon: %s",strerror(errno));
         return -1;
     }
 
@@ -142,7 +142,7 @@ static int uniauth_connect_recv(int sock,char* buffer,size_t maxsz,size_t* iter)
     ssize_t r = read(sock,buffer+it,maxsz-it);
 
     if (r == -1) {
-        php_error(E_ERROR,"could not read from uniauth daemon: %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Could not read from uniauth daemon: %s",strerror(errno));
         return 2; /* control would have jumped out of here */
     }
     it += r;
@@ -410,8 +410,9 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
          /* Handle protocol errors. */
          if (n == 0) {
-             php_error(E_ERROR,"read_storage_record(): communication error: server"
-                 " did not respond properly");
+             php_error(E_ERROR,
+                "[uniauth] read_storage_record(): communication error: server"
+                " did not respond properly");
              break;
          }
 
@@ -451,12 +452,12 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
              UNIAUTH_PROTO_FIELD_KEY,key,keylen)
          || !buffer_field_end(buffer,sizeof(buffer),&iter))
      {
-         php_error(E_ERROR,"protocol message is too large");
+         php_error(E_ERROR,"[uniauth] Protocol message is too large");
          return NULL;
      }
      sock = uniauth_connect();
      if (write(sock,buffer,iter) == -1) {
-         php_error(E_ERROR,"fail write(): %s",strerror(errno));
+         php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
          return NULL;
      }
 
@@ -467,7 +468,7 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
          status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
 
          if (status == 2) {
-             php_error(E_ERROR,"protocol error: server message incorrectly formatted");
+             php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
              return NULL;
          }
      } while (status != 0);
@@ -499,14 +500,14 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
      /* Prepare the commit message buffer to send to the uniauth daemon. */
      buffer[0] = UNIAUTH_PROTO_COMMIT;
      if (!buffer_storage_record(buffer,sizeof(buffer),&iter,stor)) {
-         php_error(E_ERROR,"protocol message is too large");
+         php_error(E_ERROR,"[uniauth] Protocol message is too large");
          return -1;
      }
 
     /* Send the request message to the uniauth daemon. */
     sock = uniauth_connect();
     if (write(sock,buffer,iter) == -1) {
-        php_error(E_ERROR,"fail write(): %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
     }
 
     /* Wait for and read the response. Hopefully this loop should never
@@ -516,7 +517,7 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
         status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
 
         if (status == 2) {
-            php_error(E_ERROR,"protocol error: server message incorrectly formatted");
+            php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
             return -1;
         }
     } while (status != 0);
@@ -541,14 +542,14 @@ int uniauth_connect_create(struct uniauth_storage* stor)
     /* Prepare the create message buffer to send to the uniauth daemon. */
     buffer[0] = UNIAUTH_PROTO_CREATE;
     if (!buffer_storage_record(buffer,sizeof(buffer),&iter,stor)) {
-        php_error(E_ERROR,"protocol message is too large");
+        php_error(E_ERROR,"[uniauth] Protocol message is too large");
         return -1;
     }
 
     /* Send the request message to the uniauth daemon. */
     sock = uniauth_connect();
     if (write(sock,buffer,iter) == -1) {
-        php_error(E_ERROR,"fail write(): %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
     }
 
     /* Wait for and read the response. Hopefully this loop should never
@@ -558,7 +559,7 @@ int uniauth_connect_create(struct uniauth_storage* stor)
         status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
 
         if (status == 2) {
-            php_error(E_ERROR,"protocol error: server message incorrectly formatted");
+            php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
             return -1;
         }
     } while (status != 0);
@@ -588,14 +589,14 @@ int uniauth_connect_transfer(const char* src,const char* dst)
             UNIAUTH_PROTO_FIELD_TRANSDST,dst,strlen(dst))
         || !buffer_field_end(buffer,sizeof(buffer),&iter))
     {
-        php_error(E_ERROR,"protocol message is too large");
+        php_error(E_ERROR,"[uniauth] Protocol message is too large");
         return -1;
     }
 
     /* Send the request message to the uniauth daemon. */
     sock = uniauth_connect();
     if (write(sock,buffer,iter) == -1) {
-        php_error(E_ERROR,"fail write(): %s",strerror(errno));
+        php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
     }
 
     /* Wait for and read the response. Hopefully this loop should never
@@ -605,7 +606,7 @@ int uniauth_connect_transfer(const char* src,const char* dst)
         status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
 
         if (status == 2) {
-            php_error(E_ERROR,"protocol error: server message incorrectly formatted");
+            php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
             return -1;
         }
     } while (status != 0);
