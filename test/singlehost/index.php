@@ -8,12 +8,15 @@
  */
 
 if (!function_exists('uniauth')) {
-    error_log("uniauth extension is not enabled");
-    exit(1);
+    throw new Error("uniauth extension is not enabled");
 }
 
+error_log('uniauth_cookie()');
 uniauth_cookie();
+
+error_log('uniauth()');
 $info = uniauth("http://localhost:8080/login.php");
+error_log('  => ' . var_export($info,true));
 
 ?>
 <!doctype>

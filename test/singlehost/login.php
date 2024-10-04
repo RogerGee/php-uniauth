@@ -9,6 +9,7 @@ function d() {
 
 // We use uniauth cookies to track uniauth sessions. The cookie will be shared
 // between the applicant/registrar endpoints.
+error_log('uniauth_cookie()');
 uniauth_cookie();
 
 $blocked = false;
@@ -24,23 +25,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         list($user,$pass) = array($_POST['user'],$_POST['pass']);
         if ($user == "john" && $pass == "alphabet") {
             try {
-                error_log('register');
+                error_log('uniauth_register()');
                 uniauth_register(1,'john','John Doe',null,30);
-                error_log('transfer');
+
+                error_log('uniauth_transfer()');
                 uniauth_transfer();
 
                 // Control no longer in this program.
-                exit;
-            } catch (Exception $ex) {
-                http_response_code(403);
-                $blocked = true;
-                $fail = 'You session window expired. Please try again.';
+                //exit;
+            } catch (\Uniauth\Exception $ex) {
+                if ($ex->getCode() == UNIAUTH_ERROR_SOURCE_NOT_EXIST) {
+                  http_response_code(403);
+                  $blocked = true;
+                  $fail = 'You session window expired. Please try again.';
+                }
+                else {
+                  throw $ex;
+                }
             }
         }
         else {
             /* Bad login: show the form again to let the user have another go. */
             http_response_code(403);
-            $fail = "Bad username or password";
+            $fail = 'Bad username or password';
         }
     }
 }
@@ -48,21 +55,24 @@ else {
     /* Do application step. */
 
     // If we have a valid session, just transfer it immediately.
+    error_log('uniauth_check()');
     if (uniauth_check()) {
-        error_log("immediate transfer");
+        error_log("  => true");
+        error_log("uniauth_transfer()");
         uniauth_transfer();
 
         // Control no longer in this program.
-        exit;
+        //exit;
     }
+    error_log("  => false");
 
     if (isset($_GET['uniauth'])) {
-        error_log('apply');
+        error_log('uniauth_apply()');
         uniauth_apply();
 
         // Force another redirect to hide query parameter.
         $uri = explode('?',$_SERVER['REQUEST_URI'],2)[0];
-        error_log("redir to $uri");
+        error_log("<redirect> $uri (hide parameter)");
         header("Location: $uri");
         exit;
     }
