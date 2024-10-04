@@ -305,119 +305,119 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
  static size_t read_field_string(char* buffer,size_t sz,char** dst,size_t* dstsz)
  {
-     size_t n = 0;
-     char* result;
+    size_t n = 0;
+    char* result;
 
-     while (n < sz && buffer[n] != 0) {
-         n += 1;
-     }
+    while (n < sz && buffer[n] != 0) {
+        n += 1;
+    }
 
-     if (n >= sz) {
-         return 0;
-     }
+    if (n >= sz) {
+        return 0;
+    }
 
-     result = emalloc(n+1);
-     memcpy(result,buffer,n);
-     result[n] = 0;
+    result = emalloc(n+1);
+    memcpy(result,buffer,n);
+    result[n] = 0;
 
-     *dst = result;
-     *dstsz = n;
-     return n+1;
+    *dst = result;
+    *dstsz = n;
+    return n+1;
  }
 
  static size_t read_field_integer(unsigned char* buffer,size_t sz,int32_t* dst)
  {
-     int i;
-     uint32_t value = 0;
+    int i;
+    uint32_t value = 0;
 
-     if (sz < UNIAUTH_INT_SZ) {
-         return 0;
-     }
+    if (sz < UNIAUTH_INT_SZ) {
+        return 0;
+    }
 
-     for (i = 0;i < UNIAUTH_INT_SZ;++i) {
-         value |= ((uint32_t)buffer[i] << (i*8));
-     }
+    for (i = 0;i < UNIAUTH_INT_SZ;++i) {
+        value |= ((uint32_t)buffer[i] << (i*8));
+    }
 
-     *dst = value;
-     return UNIAUTH_INT_SZ;
+    *dst = value;
+    return UNIAUTH_INT_SZ;
  }
 
  static size_t read_field_time(unsigned char* buffer,size_t sz,int64_t* dst)
  {
-     int i;
-     uint64_t value = 0;
+    int i;
+    uint64_t value = 0;
 
-     if (sz < UNIAUTH_TIME_SZ) {
-         return 0;
-     }
+    if (sz < UNIAUTH_TIME_SZ) {
+        return 0;
+    }
 
-     for (i = 0;i < UNIAUTH_INT_SZ;++i) {
-         value |= ((uint64_t)buffer[i] << (i*8));
-     }
+    for (i = 0;i < UNIAUTH_INT_SZ;++i) {
+        value |= ((uint64_t)buffer[i] << (i*8));
+    }
 
-     *dst = value;
-     return UNIAUTH_TIME_SZ;
+    *dst = value;
+    return UNIAUTH_TIME_SZ;
  }
 
  static void read_storage_record(char* buffer,size_t sz,struct uniauth_storage* stor)
  {
-     /* Assume the message is a RESPONSE_RECORD and begin reading its fields
-      * (which start at offset=1).
-      */
+    /* Assume the message is a RESPONSE_RECORD and begin reading its fields
+    * (which start at offset=1).
+    */
 
-     size_t iter = 1;
+    size_t iter = 1;
 
-     while (iter < sz) {
-         size_t n = 0;
-         char* p;
-         size_t z;
+    while (iter < sz) {
+        size_t n = 0;
+        char* p;
+        size_t z;
 
-         if (buffer[iter] == UNIAUTH_PROTO_FIELD_END) {
-             break;
-         }
+        if (buffer[iter] == UNIAUTH_PROTO_FIELD_END) {
+            break;
+        }
 
-         /* Calculate address and length of next field in buffer. */
-         p = buffer + iter + 1;
-         z = sz - iter - 1;
+        /* Calculate address and length of next field in buffer. */
+        p = buffer + iter + 1;
+        z = sz - iter - 1;
 
-         /* Read field. */
-         switch (buffer[iter++]) {
-         case UNIAUTH_PROTO_FIELD_KEY:
-             n = read_field_string(p,z,&stor->key,&stor->keySz);
-             break;
-         case UNIAUTH_PROTO_FIELD_ID:
-             n = read_field_integer((unsigned char*)p,z,&stor->id);
-             break;
-         case UNIAUTH_PROTO_FIELD_USER:
-             n = read_field_string(p,z,&stor->username,&stor->usernameSz);
-             break;
-         case UNIAUTH_PROTO_FIELD_DISPLAY:
-             n = read_field_string(p,z,&stor->displayName,&stor->displayNameSz);
-             break;
-         case UNIAUTH_PROTO_FIELD_EXPIRE:
-             n = read_field_time((unsigned char*)p,z,&stor->expire);
-             break;
-         case UNIAUTH_PROTO_FIELD_REDIRECT:
-             n = read_field_string(p,z,&stor->redirect,&stor->redirectSz);
-             break;
-         case UNIAUTH_PROTO_FIELD_TAG:
-             n = read_field_string(p,z,&stor->tag,&stor->tagSz);
-             break;
-         case UNIAUTH_PROTO_FIELD_LIFETIME:
-             n = read_field_integer((unsigned char*)p,z,&stor->lifetime);
-             break;
-         }
+        /* Read field. */
+        switch (buffer[iter++]) {
+        case UNIAUTH_PROTO_FIELD_KEY:
+            n = read_field_string(p,z,&stor->key,&stor->keySz);
+            break;
+        case UNIAUTH_PROTO_FIELD_ID:
+            n = read_field_integer((unsigned char*)p,z,&stor->id);
+            break;
+        case UNIAUTH_PROTO_FIELD_USER:
+            n = read_field_string(p,z,&stor->username,&stor->usernameSz);
+            break;
+        case UNIAUTH_PROTO_FIELD_DISPLAY:
+            n = read_field_string(p,z,&stor->displayName,&stor->displayNameSz);
+            break;
+        case UNIAUTH_PROTO_FIELD_EXPIRE:
+            n = read_field_time((unsigned char*)p,z,&stor->expire);
+            break;
+        case UNIAUTH_PROTO_FIELD_REDIRECT:
+            n = read_field_string(p,z,&stor->redirect,&stor->redirectSz);
+            break;
+        case UNIAUTH_PROTO_FIELD_TAG:
+            n = read_field_string(p,z,&stor->tag,&stor->tagSz);
+            break;
+        case UNIAUTH_PROTO_FIELD_LIFETIME:
+            n = read_field_integer((unsigned char*)p,z,&stor->lifetime);
+            break;
+        }
 
-         /* Handle protocol errors. */
-         if (n == 0) {
-             php_error(E_ERROR,
-                "[uniauth] read_storage_record(): communication error: server"
-                " did not respond properly");
-             break;
-         }
+        /* Handle protocol errors. */
+        if (n == 0) {
+            php_error(E_ERROR,
+            "[uniauth] read_storage_record(): communication error: server"
+            " did not respond properly");
+            break;
+        }
 
-         iter += n;
-     }
+        iter += n;
+    }
  }
 
  /* Uniauth record functions */
@@ -440,69 +440,69 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
  struct uniauth_storage* uniauth_connect_lookup(const char* key,size_t keylen,
      struct uniauth_storage* backing)
  {
-     int sock;
-     int status;
-     char buffer[UNIAUTH_MAX_MESSAGE];
-     size_t iter = 1;
-     size_t sz = 0;
+    int sock;
+    int status;
+    char buffer[UNIAUTH_MAX_MESSAGE];
+    size_t iter = 1;
+    size_t sz = 0;
 
-     /* Perform a lookup on the remote uniauth daemon. */
-     buffer[0] = UNIAUTH_PROTO_LOOKUP;
-     if (!buffer_field_string(buffer,sizeof(buffer),&iter,
-             UNIAUTH_PROTO_FIELD_KEY,key,keylen)
-         || !buffer_field_end(buffer,sizeof(buffer),&iter))
-     {
-         php_error(E_ERROR,"[uniauth] Protocol message is too large");
-         return NULL;
-     }
-     sock = uniauth_connect();
-     if (write(sock,buffer,iter) == -1) {
-         php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
-         return NULL;
-     }
+    /* Perform a lookup on the remote uniauth daemon. */
+    buffer[0] = UNIAUTH_PROTO_LOOKUP;
+    if (!buffer_field_string(buffer,sizeof(buffer),&iter,
+            UNIAUTH_PROTO_FIELD_KEY,key,keylen)
+        || !buffer_field_end(buffer,sizeof(buffer),&iter))
+    {
+        php_error(E_ERROR,"[uniauth] Protocol message is too large");
+        return NULL;
+    }
+    sock = uniauth_connect();
+    if (write(sock,buffer,iter) == -1) {
+        php_error(E_ERROR,"[uniauth] Fail write(): %s",strerror(errno));
+        return NULL;
+    }
 
-     /* Wait for and read the response. Hopefully this loop should never
-      * reiterate.
-      */
-     do {
-         status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
+    /* Wait for and read the response. Hopefully this loop should never
+    * reiterate.
+    */
+    do {
+        status = uniauth_connect_recv(sock,buffer,sizeof(buffer),&sz);
 
-         if (status == 2) {
-             php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
-             return NULL;
-         }
-     } while (status != 0);
+        if (status == 2) {
+            php_error(E_ERROR,"[uniauth] Protocol error: server message incorrectly formatted");
+            return NULL;
+        }
+    } while (status != 0);
 
-     /* An error response always means the record was not found. */
-     if (buffer[0] == UNIAUTH_PROTO_RESPONSE_MESSAGE
-         || buffer[0] == UNIAUTH_PROTO_RESPONSE_ERROR)
-     {
-         return NULL;
-     }
+    /* An error response always means the record was not found. */
+    if (buffer[0] == UNIAUTH_PROTO_RESPONSE_MESSAGE
+        || buffer[0] == UNIAUTH_PROTO_RESPONSE_ERROR)
+    {
+        return NULL;
+    }
 
-     /* If we get here then response kind must be RESPONSE_RECORD. We'll now copy
-      * the available fields into the uniauth_storage buffer provided and return
-      * a pointer to it that indicates success.
-      */
-     memset(backing,0,sizeof(struct uniauth_storage));
-     read_storage_record(buffer,sz,backing);
-     return backing;
+    /* If we get here then response kind must be RESPONSE_RECORD. We'll now copy
+    * the available fields into the uniauth_storage buffer provided and return
+    * a pointer to it that indicates success.
+    */
+    memset(backing,0,sizeof(struct uniauth_storage));
+    read_storage_record(buffer,sz,backing);
+    return backing;
  }
 
  int uniauth_connect_commit(struct uniauth_storage* stor)
  {
-     int sock;
-     int status;
-     char buffer[UNIAUTH_MAX_MESSAGE];
-     size_t iter = 1;
-     size_t sz = 0;
+    int sock;
+    int status;
+    char buffer[UNIAUTH_MAX_MESSAGE];
+    size_t iter = 1;
+    size_t sz = 0;
 
-     /* Prepare the commit message buffer to send to the uniauth daemon. */
-     buffer[0] = UNIAUTH_PROTO_COMMIT;
-     if (!buffer_storage_record(buffer,sizeof(buffer),&iter,stor)) {
-         php_error(E_ERROR,"[uniauth] Protocol message is too large");
-         return -1;
-     }
+    /* Prepare the commit message buffer to send to the uniauth daemon. */
+    buffer[0] = UNIAUTH_PROTO_COMMIT;
+    if (!buffer_storage_record(buffer,sizeof(buffer),&iter,stor)) {
+        php_error(E_ERROR,"[uniauth] Protocol message is too large");
+        return -1;
+    }
 
     /* Send the request message to the uniauth daemon. */
     sock = uniauth_connect();
