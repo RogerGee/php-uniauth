@@ -47,7 +47,7 @@ static int uniauth_connect()
          * hang up occurred on the connection.
          */
         pollInfo.fd = sock;
-        pollInfo.events = 0;
+        pollInfo.events = POLLHUP | POLLERR | POLLNVAL;
         pollInfo.revents = 0;
         if (poll(&pollInfo,1,0) > 0) {
             php_error(E_WARNING,"connection to uniauth daemon lost: attempting reconnect");
