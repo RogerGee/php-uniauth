@@ -30,3 +30,4 @@ modules
 *.lo
 .libs/
 *.la
+*.dep
