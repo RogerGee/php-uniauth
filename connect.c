@@ -298,7 +298,7 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
                 UNIAUTH_PROTO_FIELD_REDIRECT,stor->redirect,stor->redirectSz))
         || (stor->tag != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_TAG,stor->tag,stor->tagSz))
-        || (stor->lifetime != 0 && !buffer_field_integer(buffer,maxsz,iter,
+        || (stor->lifetime >= 0 && !buffer_field_integer(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_LIFETIME,stor->lifetime))
         || !buffer_field_end(buffer,maxsz,iter));
 }
