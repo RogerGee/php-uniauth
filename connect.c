@@ -281,8 +281,8 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
     const struct uniauth_storage* stor)
 {
     /* Write the uniauth structure fields into the buffer. All fields are
-     * optional (except maybe key).
-     */
+        * optional (except maybe key).
+        */
 
     return ! ((stor->key != NULL && !buffer_field_string(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_KEY,stor->key,stor->keySz))
@@ -301,10 +301,10 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
         || (stor->lifetime != 0 && !buffer_field_integer(buffer,maxsz,iter,
                 UNIAUTH_PROTO_FIELD_LIFETIME,stor->lifetime))
         || !buffer_field_end(buffer,maxsz,iter));
- }
+}
 
- static size_t read_field_string(char* buffer,size_t sz,char** dst,size_t* dstsz)
- {
+static size_t read_field_string(char* buffer,size_t sz,char** dst,size_t* dstsz)
+{
     size_t n = 0;
     char* result;
 
@@ -323,10 +323,10 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
     *dst = result;
     *dstsz = n;
     return n+1;
- }
+}
 
- static size_t read_field_integer(unsigned char* buffer,size_t sz,int32_t* dst)
- {
+static size_t read_field_integer(unsigned char* buffer,size_t sz,int32_t* dst)
+{
     int i;
     uint32_t value = 0;
 
@@ -340,10 +340,10 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
     *dst = value;
     return UNIAUTH_INT_SZ;
- }
+}
 
- static size_t read_field_time(unsigned char* buffer,size_t sz,int64_t* dst)
- {
+static size_t read_field_time(unsigned char* buffer,size_t sz,int64_t* dst)
+{
     int i;
     uint64_t value = 0;
 
@@ -357,10 +357,10 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
     *dst = value;
     return UNIAUTH_TIME_SZ;
- }
+}
 
- static void read_storage_record(char* buffer,size_t sz,struct uniauth_storage* stor)
- {
+static void read_storage_record(char* buffer,size_t sz,struct uniauth_storage* stor)
+{
     /* Assume the message is a RESPONSE_RECORD and begin reading its fields
     * (which start at offset=1).
     */
@@ -418,11 +418,11 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
         iter += n;
     }
- }
+}
 
- /* Uniauth record functions */
+/* Uniauth record functions */
 
- void uniauth_storage_delete(struct uniauth_storage* stor)
+void uniauth_storage_delete(struct uniauth_storage* stor)
 {
     /* Free the members. Some members may not be allocated. The structure itself
      * is not free'd here (since it may be allocated on the stack).
@@ -437,9 +437,11 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
 
  /* Connect API implementations */
 
- struct uniauth_storage* uniauth_connect_lookup(const char* key,size_t keylen,
-     struct uniauth_storage* backing)
- {
+struct uniauth_storage* uniauth_connect_lookup(
+    const char* key,
+    size_t keylen,
+    struct uniauth_storage* backing)
+{
     int sock;
     int status;
     char buffer[UNIAUTH_MAX_MESSAGE];
@@ -487,10 +489,10 @@ static bool buffer_storage_record(char* buffer,size_t maxsz,size_t* iter,
     memset(backing,0,sizeof(struct uniauth_storage));
     read_storage_record(buffer,sz,backing);
     return backing;
- }
+}
 
- int uniauth_connect_commit(struct uniauth_storage* stor)
- {
+int uniauth_connect_commit(struct uniauth_storage* stor)
+{
     int sock;
     int status;
     char buffer[UNIAUTH_MAX_MESSAGE];
