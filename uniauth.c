@@ -45,6 +45,9 @@ static zend_function_entry php_uniauth_functions[] = {
     {NULL, NULL, NULL}
 };
 
+/* Class entry for exception type */
+zend_class_entry* exception_ce = NULL;
+
 /* Module entries */
 zend_module_entry uniauth_module_entry = {
     STANDARD_MODULE_HEADER,
@@ -66,6 +69,10 @@ ZEND_GET_MODULE(uniauth)
 /* Uniauth INI settings */
 
 PHP_INI_BEGIN()
+/* NOTE: Since the socket is cached, all socket INIs are system-level only. */
+PHP_INI_ENTRY(UNIAUTH_SOCKET_PATH_INI, "", PHP_INI_SYSTEM, NULL)
+PHP_INI_ENTRY(UNIAUTH_SOCKET_HOST_INI, "", PHP_INI_SYSTEM, NULL)
+PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "7033", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
 PHP_INI_END()
 
@@ -73,8 +80,49 @@ PHP_INI_END()
 
 PHP_MINIT_FUNCTION(uniauth)
 {
-    uniauth_globals_init();
+    zend_class_entry ce;
+
     REGISTER_INI_ENTRIES();
+    uniauth_globals_init();
+
+    /* Register constants */
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_INVALID_SERVERVARS",
+        UNIAUTH_ERROR_INVALID_SERVERVARS,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_NO_SESSION",
+        UNIAUTH_ERROR_NO_SESSION,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_SOURCE_NOT_EXIST",
+        UNIAUTH_ERROR_SOURCE_NOT_EXIST,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_SOURCE_NOT_APPLY",
+        UNIAUTH_ERROR_SOURCE_NOT_APPLY,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_DEST_NOT_EXIST",
+        UNIAUTH_ERROR_DEST_NOT_EXIST,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_TRANSFER_FAILED",
+        UNIAUTH_ERROR_TRANSFER_FAILED,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_MISSING_REDIRECT",
+        UNIAUTH_ERROR_MISSING_REDIRECT,
+        CONST_CS|CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT(
+        "UNIAUTH_ERROR_MISSING_UNIAUTH_PARAM",
+        UNIAUTH_ERROR_MISSING_UNIAUTH_PARAM,
+        CONST_CS|CONST_PERSISTENT);
+
+    /* Register exception type */
+    INIT_NS_CLASS_ENTRY(ce,"Uniauth","Exception",NULL);
+    exception_ce = zend_register_internal_class_ex(&ce,spl_ce_RuntimeException);
+    exception_ce->ce_flags |= ZEND_ACC_FINAL;
 
     return SUCCESS;
 }
@@ -201,7 +249,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     /* Make sure $_SERVER is auto loaded already. */
     if (check_global("_SERVER",sizeof("_SERVER")-1) != SUCCESS) {
-        zend_throw_exception(NULL,"Failed to activate $_SERVER",0);
+        zend_throw_exception(NULL,"[uniauth] Failed to activate $_SERVER",0);
         return FAILURE;
     }
 
@@ -213,7 +261,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
 
     entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
     if (entry == NULL) {
-        zend_throw_exception(NULL,"Failed to look up $_SERVER",0);
+        zend_throw_exception(NULL,"[uniauth] Failed to look up $_SERVER",0);
         return FAILURE;
     }
     server = Z_ARRVAL_P(entry);
@@ -230,7 +278,10 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         host = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'HTTP_HOST' variable",0);
+        zend_throw_exception(
+            exception_ce,
+            "$_SERVER does not contain required 'HTTP_HOST' variable",
+            UNIAUTH_ERROR_INVALID_SERVERVARS);
         return FAILURE;
     }
 
@@ -259,7 +310,10 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         }
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
+        zend_throw_exception(
+            exception_ce,
+            "$_SERVER does not contain required 'SERVER_PORT' variable",
+            UNIAUTH_ERROR_INVALID_SERVERVARS);
         return FAILURE;
     }
 
@@ -269,7 +323,10 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         uri = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(NULL,"$_SERVER does not contain required 'SERVER_PORT' variable",0);
+        zend_throw_exception(
+            exception_ce,
+            "$_SERVER does not contain required 'SERVER_PORT' variable",
+            UNIAUTH_ERROR_INVALID_SERVERVARS);
         return FAILURE;
     }
 
@@ -367,13 +424,13 @@ static char* get_default_sessid(size_t* out_len)
     char* sessid;
     size_t sesslen;
 
-    if (UNIAUTH_G(useCookie)) {
+    if (UNIAUTH_G(use_cookie)) {
         zv = GET_GLOBAL("_COOKIE","uniauth");
         if (zv == NULL) {
             zend_throw_exception(
-                NULL,
+                exception_ce,
                 "Failed to load uniauth identifier from uniauth cookie",
-                0);
+                UNIAUTH_ERROR_NO_SESSION);
             return NULL;
         }
         sessid = Z_STRVAL_P(zv);
@@ -382,9 +439,9 @@ static char* get_default_sessid(size_t* out_len)
     else {
         if (PS(id) == NULL || PS(id)->len == 0) {
             zend_throw_exception(
-                NULL,
+                exception_ce,
                 "Failed to load uniauth identifier from php session",
-                0);
+                UNIAUTH_ERROR_NO_SESSION);
             return NULL;
         }
         sessid = PS(id)->val;
@@ -393,6 +450,51 @@ static char* get_default_sessid(size_t* out_len)
 
     *out_len = sesslen;
     return sessid;
+}
+
+ZEND_DECLARE_MODULE_GLOBALS(uniauth);
+
+static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
+{
+    gbls->conn = -1;
+    gbls->use_cookie = 0;
+
+    memset(&gbls->socket_info,0,sizeof(struct uniauth_socket_info));
+    gbls->socket_info.path = INI_STR(UNIAUTH_SOCKET_PATH_INI);
+    gbls->socket_info.host = INI_STR(UNIAUTH_SOCKET_HOST_INI);
+    gbls->socket_info.port = INI_STR(UNIAUTH_SOCKET_PORT_INI);
+}
+
+static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
+{
+    if (gbls->conn != -1) {
+        close(gbls->conn);
+        gbls->conn = -1;
+    }
+}
+
+void uniauth_globals_init()
+{
+#ifdef ZTS
+    ts_allocate_id(&uniauth_globals_id,
+        sizeof(zend_uniauth_globals),
+        (ts_allocate_ctor)php_uniauth_globals_ctor,
+        (ts_allocate_dtor)php_uniauth_globals_dtor);
+#else
+    php_uniauth_globals_ctor(&uniauth_globals);
+#endif
+}
+
+void uniauth_globals_request_init()
+{
+    UNIAUTH_G(use_cookie) = 0;
+}
+
+void uniauth_globals_shutdown()
+{
+#ifndef ZTS
+    php_uniauth_globals_dtor(&uniauth_globals);
+#endif
 }
 
 /* Implementation of PHP userspace functions */
@@ -635,7 +737,7 @@ PHP_FUNCTION(uniauth_register)
      * indefinate lifetime. Otherwise we always produce a session cookie with no
      * expiration.
      */
-    if (UNIAUTH_G(useCookie)) {
+    if (UNIAUTH_G(use_cookie)) {
         set_uniauth_cookie(stor->key,stor->keySz,expires);
     }
 
@@ -677,11 +779,17 @@ PHP_FUNCTION(uniauth_transfer)
      */
     src = uniauth_connect_lookup(sessid,sesslen,backing);
     if (src == NULL) {
-        zend_throw_exception(NULL,"Source registration does not exist",0);
+        zend_throw_exception(
+            exception_ce,
+            "Source registration does not exist",
+            UNIAUTH_ERROR_SOURCE_NOT_EXIST);
         return;
     }
     if (src->tag == NULL) {
-        zend_throw_exception(NULL,"Source registration did not apply",0);
+        zend_throw_exception(
+            exception_ce,
+            "Source registration did not apply",
+            UNIAUTH_ERROR_SOURCE_NOT_APPLY);
         uniauth_storage_delete(backing);
         return;
     }
@@ -693,7 +801,10 @@ PHP_FUNCTION(uniauth_transfer)
      */
     dst = uniauth_connect_lookup(foreignSession,foreignSessionlen,backing+1);
     if (dst == NULL) {
-        zend_throw_exception(NULL,"Destination registration does not exist",0);
+        zend_throw_exception(
+            exception_ce,
+            "Destination registration does not exist",
+            UNIAUTH_ERROR_DEST_NOT_EXIST);
         uniauth_storage_delete(backing);
         return;
     }
@@ -702,7 +813,10 @@ PHP_FUNCTION(uniauth_transfer)
      * uniauth daemon will do this for us.
      */
     if (uniauth_connect_transfer(sessid,foreignSession) == -1) {
-        zend_throw_exception(NULL,"the transfer operation failed",0);
+        zend_throw_exception(
+            exception_ce,
+            "The transfer operation failed",
+            UNIAUTH_ERROR_TRANSFER_FAILED);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -719,7 +833,10 @@ PHP_FUNCTION(uniauth_transfer)
         efree(linebuf);
     }
     else {
-        zend_throw_exception(NULL,"No redirect URI exists for the destination registration",0);
+        zend_throw_exception(
+            exception_ce,
+            "No redirect URI exists for the destination registration",
+            UNIAUTH_ERROR_MISSING_REDIRECT);
         uniauth_storage_delete(backing);
         uniauth_storage_delete(backing+1);
         return;
@@ -834,7 +951,10 @@ PHP_FUNCTION(uniauth_apply)
         if (!create) {
             uniauth_storage_delete(stor);
         }
-        zend_throw_exception(NULL,"No 'uniauth' query parameter was specified",0);
+        zend_throw_exception(
+            exception_ce,
+            "No 'uniauth' query parameter was specified",
+            UNIAUTH_ERROR_MISSING_UNIAUTH_PARAM);
         return;
     }
     stor->tag = estrdup(applicantID);
@@ -944,7 +1064,7 @@ PHP_FUNCTION(uniauth_cookie)
          * global to be set.
          */
         if (SET_GLOBAL("_COOKIE","uniauth",&sessid) != SUCCESS) {
-            zend_throw_exception(NULL,"Cannot set 'uniauth' in $_COOKIE",0);
+            zend_throw_exception(NULL,"[uniauth] Cannot set 'uniauth' in $_COOKIE",0);
             return;
         }
     }
@@ -991,7 +1111,7 @@ PHP_FUNCTION(uniauth_cookie)
     /* Toggle global flag to indicate the extension should use the uniauth
      * cookie instead of the PHP session.
      */
-    UNIAUTH_G(useCookie) = 1;
+    UNIAUTH_G(use_cookie) = 1;
 
     /* Create/touch the cookie. */
     if (touch) {
