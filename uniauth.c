@@ -499,7 +499,7 @@ void uniauth_globals_shutdown()
 
 /* Implementation of PHP userspace functions */
 
-/* {{{ proto ?array uniauth([string url, string session_id])
+/* {{{ proto ?array uniauth([string url, string session_id, string $redirect_url])
    Looks up authentication session information or otherwise begins the uniauth
    flow if given authentication endpoint url. */
 PHP_FUNCTION(uniauth)
@@ -511,6 +511,7 @@ PHP_FUNCTION(uniauth)
     size_t urllen = 0;
     char* sessid = NULL;
     size_t sesslen = 0;
+    zend_string* redirect_url = NULL;
     sapi_header_line ctr = {0};
     size_t bufsz;
     zend_string* encoded;
@@ -518,8 +519,12 @@ PHP_FUNCTION(uniauth)
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
      */
-    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s!s",&url,&urllen,
-            &sessid,&sesslen) == FAILURE)
+    if (zend_parse_parameters(
+        ZEND_NUM_ARGS(),
+        "|s!s!S",
+        &url,&urllen,
+        &sessid,&sesslen,
+        &redirect_url) == FAILURE)
     {
         return;
     }
@@ -565,8 +570,8 @@ PHP_FUNCTION(uniauth)
             /* Control no longer in function. */
         }
 
-        /* If no redirect URL was provided, then we just return null to indicate
-         * that no session is available.
+        /* If no authentication endpoint URL was provided, then we just return
+         * null to indicate that no session is available.
          */
         if (url == NULL) {
             uniauth_storage_delete(stor);
@@ -576,7 +581,20 @@ PHP_FUNCTION(uniauth)
         /* If the ID was not set, then we update the redirect URI and continue
          * to redirect the script.
          */
-        if (set_redirect_uri(stor) != SUCCESS) {
+        if (redirect_url != NULL) {
+            if (redirect_url->len == 0) {
+                zend_throw_exception(
+                    spl_ce_InvalidArgumentException,
+                    "[uniauth] Argument 'redirect_url' must be a non-empty value",
+                    0);
+                uniauth_storage_delete(stor);
+                return;
+            }
+
+            stor->redirect = estrndup(redirect_url->val,redirect_url->len);
+            stor->redirectSz = redirect_url->len;
+        }
+        else if (set_redirect_uri(stor) != SUCCESS) {
             /* Exception is thrown */
             uniauth_storage_delete(stor);
             return;
@@ -586,8 +604,8 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_commit(stor);
     }
     else {
-        /* If no redirect URL was provided, then we just return null to indicate
-         * that no session is available.
+        /* If no authentication endpoint URL was provided, then we just return
+         * null to indicate that no session is available.
          */
         if (url == NULL) {
             RETURN_NULL();
@@ -603,7 +621,20 @@ PHP_FUNCTION(uniauth)
         stor->keySz = sesslen;
 
         /* Fill out stor->redirect. */
-        if (set_redirect_uri(stor) != SUCCESS) {
+        if (redirect_url != NULL) {
+            if (redirect_url->len == 0) {
+                zend_throw_exception(
+                    spl_ce_InvalidArgumentException,
+                    "[uniauth] Argument 'redirect_url' must be a non-empty value",
+                    0);
+                uniauth_storage_delete(stor);
+                return;
+            }
+
+            stor->redirect = estrndup(redirect_url->val,redirect_url->len);
+            stor->redirectSz = redirect_url->len;
+        }
+        else if (set_redirect_uri(stor) != SUCCESS) {
             /* Exception is thrown */
             uniauth_storage_delete(stor);
             return;
