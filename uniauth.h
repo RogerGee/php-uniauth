@@ -43,6 +43,7 @@
 #define UNIAUTH_SOCKET_HOST_INI  "uniauth.socket_host"
 #define UNIAUTH_SOCKET_PORT_INI  "uniauth.socket_port"
 #define UNIAUTH_LIFETIME_INI     "uniauth.lifetime"
+#define UNIAUTH_BASEPATH_VAR     "uniauth.basepath_variable_name"
 
 #define UNIAUTH_ERROR_INVALID_SERVERVARS        100
 #define UNIAUTH_ERROR_NO_SESSION                101
@@ -68,6 +69,7 @@ ZEND_BEGIN_MODULE_GLOBALS(uniauth)
   int conn;
   unsigned long use_cookie;
   struct uniauth_socket_info socket_info;
+  const char* basepath_variable_name;
 ZEND_END_MODULE_GLOBALS(uniauth)
 
 extern ZEND_DECLARE_MODULE_GLOBALS(uniauth);

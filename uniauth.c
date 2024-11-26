@@ -74,6 +74,7 @@ PHP_INI_ENTRY(UNIAUTH_SOCKET_PATH_INI, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_SOCKET_HOST_INI, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "7033", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
+PHP_INI_ENTRY(UNIAUTH_BASEPATH_VAR, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_END()
 
 /* Implementation of module/request functions */
@@ -238,6 +239,7 @@ static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
+    const char* const basepath_variable_name = UNIAUTH_G(basepath_variable_name);
     zval* entry;
     char buf[4096];
     HashTable* server;
@@ -246,6 +248,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     char* host;
     char* port = NULL;
     char* uri;
+    char* basepath = "";
     size_t len;
 
     /* Make sure $_SERVER is auto loaded already. */
@@ -356,12 +359,20 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         return FAILURE;
     }
 
+    /* Look up base path (if configured) from server variables. */
+    if (basepath_variable_name[0] != 0) {
+        entry = zend_hash_str_find(server,basepath_variable_name,strlen(basepath_variable_name));
+        if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+            basepath = Z_STRVAL_P(entry);
+        }
+    }
+
     /* Format the URI to a temporary buffer. */
     if (port == NULL) {
-        snprintf(buf,sizeof(buf),"%s://%s%s",https?"https":"http",host,uri);
+        snprintf(buf,sizeof(buf),"%s://%s%s%s",https?"https":"http",host,basepath,uri);
     }
     else {
-        snprintf(buf,sizeof(buf),"%s://%s:%s%s",https?"https":"http",host,port,uri);
+        snprintf(buf,sizeof(buf),"%s://%s:%s%s%s",https?"https":"http",host,port,basepath,uri);
     }
 
     /* Copy buffer into record structure. */
@@ -489,6 +500,7 @@ static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
     gbls->socket_info.path = INI_STR(UNIAUTH_SOCKET_PATH_INI);
     gbls->socket_info.host = INI_STR(UNIAUTH_SOCKET_HOST_INI);
     gbls->socket_info.port = INI_STR(UNIAUTH_SOCKET_PORT_INI);
+    gbls->basepath_variable_name = INI_STR(UNIAUTH_BASEPATH_VAR);
 }
 
 static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
