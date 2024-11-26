@@ -29,7 +29,7 @@
  *  Having codes:
  *   - UNIAUTH_ERROR_NO_SESSION
  */
-function uniauth(string $url = null,string $session_id = null,string $redirect_url) : ?array {}
+function uniauth(string $url = null,string $session_id = null,string $redirect_url = null) : ?array {}
 
 /**
  * Registers an existing uniauth session using the indicated user information.
