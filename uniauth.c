@@ -241,6 +241,7 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     zval* entry;
     char buf[4096];
     HashTable* server;
+    int forwarded = 0;
     int https = 0;
     char* host;
     char* port = NULL;
@@ -257,6 +258,9 @@ static int set_redirect_uri(struct uniauth_storage* stor)
      * superglobal. We use HTTPS, HTTP_HOST and SERVER_PORT keys to resolve the
      * scheme, host and port. I know of no better way to do this unfortunately
      * with the PHP/ZEND API. The sapi globals just don't have what I need.
+     *
+     * We also consider HTTP_X_FORWARDED_HOST and HTTP_X_FORWARDED_PROTO to
+     * support reverse proxy situations.
      */
 
     entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
@@ -266,55 +270,77 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     }
     server = Z_ARRVAL_P(entry);
 
-    entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
-    if (entry != NULL) {
-        if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
+    entry = zend_hash_str_find(server,"HTTP_X_FORWARDED_PROTO",sizeof("HTTP_X_FORWARDED_PROTO")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        forwarded = 1;
+        if (strcmp(Z_STRVAL_P(entry),"https") == 0) {
             https = 1;
         }
     }
+    else {
+        entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
+        if (entry != NULL) {
+            if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
+                https = 1;
+            }
+        }
+    }
 
-    entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+    entry = zend_hash_str_find(server,"HTTP_X_FORWARDED_HOST",sizeof("HTTP_X_FORWARDED_HOST")-1);
     if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        forwarded = 1;
         host = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(
-            exception_ce,
-            "$_SERVER does not contain required 'HTTP_HOST' variable",
-            UNIAUTH_ERROR_INVALID_SERVERVARS);
-        return FAILURE;
-    }
-
-    entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
-    if (entry != NULL) {
-        /* Only set port if it is not well-known. If the host name contains a
-         * ':' then we assume the port was encoded in the Host header. User
-         * agents should do this but we still need make sure we get the port
-         * number if not.
-         */
-        int i = 0;
-
-        while (host[i] != 0) {
-            if (host[i] == ':') {
-                break;
-            }
-            i += 1;
+        entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+        if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+            host = Z_STRVAL_P(entry);
         }
-
-        if (host[i] == 0) {
-            zend_string* str = zval_get_string(entry);
-            if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
-                port = estrdup(str->val);
-            }
-            zend_string_release(str);
+        else {
+            zend_throw_exception(
+                exception_ce,
+                "$_SERVER does not contain required 'HTTP_HOST' variable",
+                UNIAUTH_ERROR_INVALID_SERVERVARS);
+            return FAILURE;
         }
     }
-    else {
-        zend_throw_exception(
-            exception_ce,
-            "$_SERVER does not contain required 'SERVER_PORT' variable",
-            UNIAUTH_ERROR_INVALID_SERVERVARS);
-        return FAILURE;
+
+    /* Look into SERVER_PORT if we are not using forwarded headers to determine
+     * host/protocol. (If we are forwarded, then the port should be encoded
+     * in the X-Forwarded-Host header.)
+     */
+    if (!forwarded) {
+        entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
+        if (entry != NULL) {
+            /* Only set port if it is not well-known. If the host name contains a
+             * ':' then we assume the port was encoded in the Host header. User
+             * agents should do this but we still need make sure we get the port
+             * number if not.
+             */
+            int i = 0;
+
+            while (host[i] != 0) {
+                if (host[i] == ':') {
+                    break;
+                }
+                i += 1;
+            }
+
+            if (host[i] == 0) {
+                zend_string* str = zval_get_string(entry);
+                if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
+                    port = estrdup(str->val);
+                }
+                zend_string_release(str);
+            }
+        }
+        else {
+            zend_throw_exception(
+                exception_ce,
+                "$_SERVER does not contain required 'SERVER_PORT' variable",
+                UNIAUTH_ERROR_INVALID_SERVERVARS);
+            return FAILURE;
+        }
     }
 
     /* Lookup request URI. This actually can be found in the sapi globals. */
