@@ -74,6 +74,7 @@ PHP_INI_ENTRY(UNIAUTH_SOCKET_PATH_INI, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_SOCKET_HOST_INI, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_SOCKET_PORT_INI, "7033", PHP_INI_SYSTEM, NULL)
 PHP_INI_ENTRY(UNIAUTH_LIFETIME_INI, "86400", PHP_INI_ALL, NULL)
+PHP_INI_ENTRY(UNIAUTH_BASEPATH_VAR, "", PHP_INI_SYSTEM, NULL)
 PHP_INI_END()
 
 /* Implementation of module/request functions */
@@ -238,13 +239,16 @@ static int set_global(const char* gbl,int gbllen,const char* key,int keylen,zval
 
 static int set_redirect_uri(struct uniauth_storage* stor)
 {
+    const char* const basepath_variable_name = UNIAUTH_G(basepath_variable_name);
     zval* entry;
     char buf[4096];
     HashTable* server;
+    int forwarded = 0;
     int https = 0;
     char* host;
     char* port = NULL;
     char* uri;
+    char* basepath = "";
     size_t len;
 
     /* Make sure $_SERVER is auto loaded already. */
@@ -257,6 +261,9 @@ static int set_redirect_uri(struct uniauth_storage* stor)
      * superglobal. We use HTTPS, HTTP_HOST and SERVER_PORT keys to resolve the
      * scheme, host and port. I know of no better way to do this unfortunately
      * with the PHP/ZEND API. The sapi globals just don't have what I need.
+     *
+     * We also consider HTTP_X_FORWARDED_HOST and HTTP_X_FORWARDED_PROTO to
+     * support reverse proxy situations.
      */
 
     entry = zend_hash_str_find(&EG(symbol_table),"_SERVER",sizeof("_SERVER")-1);
@@ -266,55 +273,77 @@ static int set_redirect_uri(struct uniauth_storage* stor)
     }
     server = Z_ARRVAL_P(entry);
 
-    entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
-    if (entry != NULL) {
-        if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
+    entry = zend_hash_str_find(server,"HTTP_X_FORWARDED_PROTO",sizeof("HTTP_X_FORWARDED_PROTO")-1);
+    if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        forwarded = 1;
+        if (strcmp(Z_STRVAL_P(entry),"https") == 0) {
             https = 1;
         }
     }
+    else {
+        entry = zend_hash_str_find(server,"HTTPS",sizeof("HTTPS")-1);
+        if (entry != NULL) {
+            if (Z_TYPE_P(entry) != IS_STRING || strcmp(Z_STRVAL_P(entry),"off") != 0) {
+                https = 1;
+            }
+        }
+    }
 
-    entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+    entry = zend_hash_str_find(server,"HTTP_X_FORWARDED_HOST",sizeof("HTTP_X_FORWARDED_HOST")-1);
     if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+        forwarded = 1;
         host = Z_STRVAL_P(entry);
     }
     else {
-        zend_throw_exception(
-            exception_ce,
-            "$_SERVER does not contain required 'HTTP_HOST' variable",
-            UNIAUTH_ERROR_INVALID_SERVERVARS);
-        return FAILURE;
-    }
-
-    entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
-    if (entry != NULL) {
-        /* Only set port if it is not well-known. If the host name contains a
-         * ':' then we assume the port was encoded in the Host header. User
-         * agents should do this but we still need make sure we get the port
-         * number if not.
-         */
-        int i = 0;
-
-        while (host[i] != 0) {
-            if (host[i] == ':') {
-                break;
-            }
-            i += 1;
+        entry = zend_hash_str_find(server,"HTTP_HOST",sizeof("HTTP_HOST")-1);
+        if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+            host = Z_STRVAL_P(entry);
         }
-
-        if (host[i] == 0) {
-            zend_string* str = zval_get_string(entry);
-            if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
-                port = estrdup(str->val);
-            }
-            zend_string_release(str);
+        else {
+            zend_throw_exception(
+                exception_ce,
+                "$_SERVER does not contain required 'HTTP_HOST' variable",
+                UNIAUTH_ERROR_INVALID_SERVERVARS);
+            return FAILURE;
         }
     }
-    else {
-        zend_throw_exception(
-            exception_ce,
-            "$_SERVER does not contain required 'SERVER_PORT' variable",
-            UNIAUTH_ERROR_INVALID_SERVERVARS);
-        return FAILURE;
+
+    /* Look into SERVER_PORT if we are not using forwarded headers to determine
+     * host/protocol. (If we are forwarded, then the port should be encoded
+     * in the X-Forwarded-Host header.)
+     */
+    if (!forwarded) {
+        entry = zend_hash_str_find(server,"SERVER_PORT",sizeof("SERVER_PORT")-1);
+        if (entry != NULL) {
+            /* Only set port if it is not well-known. If the host name contains a
+             * ':' then we assume the port was encoded in the Host header. User
+             * agents should do this but we still need make sure we get the port
+             * number if not.
+             */
+            int i = 0;
+
+            while (host[i] != 0) {
+                if (host[i] == ':') {
+                    break;
+                }
+                i += 1;
+            }
+
+            if (host[i] == 0) {
+                zend_string* str = zval_get_string(entry);
+                if ((!https && strcmp(str->val,"80") != 0) || (https && strcmp(str->val,"443") != 0)) {
+                    port = estrdup(str->val);
+                }
+                zend_string_release(str);
+            }
+        }
+        else {
+            zend_throw_exception(
+                exception_ce,
+                "$_SERVER does not contain required 'SERVER_PORT' variable",
+                UNIAUTH_ERROR_INVALID_SERVERVARS);
+            return FAILURE;
+        }
     }
 
     /* Lookup request URI. This actually can be found in the sapi globals. */
@@ -330,12 +359,20 @@ static int set_redirect_uri(struct uniauth_storage* stor)
         return FAILURE;
     }
 
+    /* Look up base path (if configured) from server variables. */
+    if (basepath_variable_name[0] != 0) {
+        entry = zend_hash_str_find(server,basepath_variable_name,strlen(basepath_variable_name));
+        if (entry != NULL && Z_TYPE_P(entry) == IS_STRING) {
+            basepath = Z_STRVAL_P(entry);
+        }
+    }
+
     /* Format the URI to a temporary buffer. */
     if (port == NULL) {
-        snprintf(buf,sizeof(buf),"%s://%s%s",https?"https":"http",host,uri);
+        snprintf(buf,sizeof(buf),"%s://%s%s%s",https?"https":"http",host,basepath,uri);
     }
     else {
-        snprintf(buf,sizeof(buf),"%s://%s:%s%s",https?"https":"http",host,port,uri);
+        snprintf(buf,sizeof(buf),"%s://%s:%s%s%s",https?"https":"http",host,port,basepath,uri);
     }
 
     /* Copy buffer into record structure. */
@@ -463,6 +500,7 @@ static void php_uniauth_globals_ctor(zend_uniauth_globals* gbls)
     gbls->socket_info.path = INI_STR(UNIAUTH_SOCKET_PATH_INI);
     gbls->socket_info.host = INI_STR(UNIAUTH_SOCKET_HOST_INI);
     gbls->socket_info.port = INI_STR(UNIAUTH_SOCKET_PORT_INI);
+    gbls->basepath_variable_name = INI_STR(UNIAUTH_BASEPATH_VAR);
 }
 
 static void php_uniauth_globals_dtor(zend_uniauth_globals* gbls)
@@ -499,7 +537,7 @@ void uniauth_globals_shutdown()
 
 /* Implementation of PHP userspace functions */
 
-/* {{{ proto ?array uniauth([string url, string session_id])
+/* {{{ proto ?array uniauth([string url, string session_id, string $redirect_url])
    Looks up authentication session information or otherwise begins the uniauth
    flow if given authentication endpoint url. */
 PHP_FUNCTION(uniauth)
@@ -511,6 +549,7 @@ PHP_FUNCTION(uniauth)
     size_t urllen = 0;
     char* sessid = NULL;
     size_t sesslen = 0;
+    zend_string* redirect_url = NULL;
     sapi_header_line ctr = {0};
     size_t bufsz;
     zend_string* encoded;
@@ -518,8 +557,12 @@ PHP_FUNCTION(uniauth)
     /* Grab URL from userspace along with the session id if the user chooses to
      * specify it.
      */
-    if (zend_parse_parameters(ZEND_NUM_ARGS(),"|s!s",&url,&urllen,
-            &sessid,&sesslen) == FAILURE)
+    if (zend_parse_parameters(
+        ZEND_NUM_ARGS(),
+        "|s!s!S",
+        &url,&urllen,
+        &sessid,&sesslen,
+        &redirect_url) == FAILURE)
     {
         return;
     }
@@ -565,8 +608,8 @@ PHP_FUNCTION(uniauth)
             /* Control no longer in function. */
         }
 
-        /* If no redirect URL was provided, then we just return null to indicate
-         * that no session is available.
+        /* If no authentication endpoint URL was provided, then we just return
+         * null to indicate that no session is available.
          */
         if (url == NULL) {
             uniauth_storage_delete(stor);
@@ -576,7 +619,20 @@ PHP_FUNCTION(uniauth)
         /* If the ID was not set, then we update the redirect URI and continue
          * to redirect the script.
          */
-        if (set_redirect_uri(stor) != SUCCESS) {
+        if (redirect_url != NULL) {
+            if (redirect_url->len == 0) {
+                zend_throw_exception(
+                    spl_ce_InvalidArgumentException,
+                    "[uniauth] Argument 'redirect_url' must be a non-empty value",
+                    0);
+                uniauth_storage_delete(stor);
+                return;
+            }
+
+            stor->redirect = estrndup(redirect_url->val,redirect_url->len);
+            stor->redirectSz = redirect_url->len;
+        }
+        else if (set_redirect_uri(stor) != SUCCESS) {
             /* Exception is thrown */
             uniauth_storage_delete(stor);
             return;
@@ -586,8 +642,8 @@ PHP_FUNCTION(uniauth)
         uniauth_connect_commit(stor);
     }
     else {
-        /* If no redirect URL was provided, then we just return null to indicate
-         * that no session is available.
+        /* If no authentication endpoint URL was provided, then we just return
+         * null to indicate that no session is available.
          */
         if (url == NULL) {
             RETURN_NULL();
@@ -603,7 +659,20 @@ PHP_FUNCTION(uniauth)
         stor->keySz = sesslen;
 
         /* Fill out stor->redirect. */
-        if (set_redirect_uri(stor) != SUCCESS) {
+        if (redirect_url != NULL) {
+            if (redirect_url->len == 0) {
+                zend_throw_exception(
+                    spl_ce_InvalidArgumentException,
+                    "[uniauth] Argument 'redirect_url' must be a non-empty value",
+                    0);
+                uniauth_storage_delete(stor);
+                return;
+            }
+
+            stor->redirect = estrndup(redirect_url->val,redirect_url->len);
+            stor->redirectSz = redirect_url->len;
+        }
+        else if (set_redirect_uri(stor) != SUCCESS) {
             /* Exception is thrown */
             uniauth_storage_delete(stor);
             return;

@@ -1,9 +1,10 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 48ea4cb912d1b3176c07b681a8cf331130fb2648 */
+ * Stub hash: ec70e9c53c37197c421b8a9fc2e49020afa3fa29 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_uniauth, 0, 0, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, url, IS_STRING, 0, "null")
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, session_id, IS_STRING, 0, "null")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, redirect_url, IS_STRING, 0, "null")
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_uniauth_register, 0, 3, IS_VOID, 0)

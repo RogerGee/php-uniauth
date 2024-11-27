@@ -9,6 +9,10 @@
  *  the program will end before this function returns.
  * @param string $session_id
  *  (optional) The session ID to use instead of the default ID.
+ * @param string $redirect_url
+ *  (optional) The URL to which the registrar endpoint redirects upon success.
+ *  If omitted, then the redirect URL will be generated from the server
+ *  environment automatically.
  *
  * @return ?array
  *  Returns the login array if there is a registered session. Otherwise NULL is
@@ -25,7 +29,7 @@
  *  Having codes:
  *   - UNIAUTH_ERROR_NO_SESSION
  */
-function uniauth(string $url = null,string $session_id = null) : ?array {}
+function uniauth(string $url = null,string $session_id = null,string $redirect_url = null) : ?array {}
 
 /**
  * Registers an existing uniauth session using the indicated user information.

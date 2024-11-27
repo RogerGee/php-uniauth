@@ -1,6 +1,6 @@
 <?php
 
-function uniauth(string $url = null,string $session_id = null) : ?array {}
+function uniauth(string $url = null,string $session_id = null,string $redirect_url = null) : ?array {}
 
 function uniauth_register(int $id,string $name,string $display_name,string $session_id = null,int $lifetime = 0) : void {}
 
